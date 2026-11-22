@@ -60,9 +60,16 @@ struct AccountCredential: Codable, Sendable {
     let deviceID: UUID
 }
 
-private struct ErrorResponse: Decodable & Sendable {
-    let error: String?
-    let reason: String?
+private struct ErrorResponse: Decodable, Sendable {
+    private enum Field: String, CodingKey { case error, reason }
+
+    let message: String?
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: Field.self)
+        message = (try? values.decode(String.self, forKey: .reason)) ??
+            (try? values.decode(String.self, forKey: .error))
+    }
 }
 
 private final class NoRedirects: NSObject, URLSessionTaskDelegate {
@@ -148,7 +155,7 @@ struct ServerClient: Sendable {
             let error = try? decoder.decode(ErrorResponse.self, from: data)
             throw ServerError.response(
                 status: http.statusCode,
-                message: error?.error ?? error?.reason ?? "The server returned status \(http.statusCode)."
+                message: error?.message ?? "The server returned status \(http.statusCode)."
             )
         }
         do {
