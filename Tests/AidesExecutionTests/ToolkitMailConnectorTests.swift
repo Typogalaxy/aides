@@ -19,7 +19,12 @@ struct ToolkitMailConnectorTests {
                 #expect(url.absoluteString.contains("%2B"))
                 return Data(#"{"messages":[{"id":"abc123"}]}"#.utf8)
             case "/gmail/v1/users/me/messages/abc123":
-                return Data(#"{"id":"abc123","snippet":"Preview","payload":{"mimeType":"text/plain","headers":[{"name":"From","value":"sender@example.com"},{"name":"subject","value":"Fixture subject"}],"body":{"data":"SGVsbG8"}}}"#.utf8)
+                return Data(#"{"id":"abc123","snippet":"Preview","internalDate":"1795305600000","payload":{"mimeType":"multipart/mixed","headers":[{"name":"From","value":"sender@example.com"},{"name":"subject","value":"Fixture subject"}],"parts":[{"mimeType":"text/plain","body":{"data":"SGVsbG8"}},{"mimeType":"application/pdf","filename":"fixture.pdf","body":{"attachmentId":"private-id","size":21}}]}}"#.utf8)
+            case "/gmail/v1/users/me/messages/abc123/modify":
+                #expect(request.httpMethod == "POST")
+                let object = try requestObject(request)
+                #expect(object["removeLabelIds"] as? [String] == ["INBOX"])
+                return Data()
             case "/gmail/v1/users/me/messages/send":
                 #expect(request.httpMethod == "POST")
                 let object = try requestObject(request)
@@ -41,7 +46,11 @@ struct ToolkitMailConnectorTests {
         #expect(result.first?.body == nil)
         let message = try await connector.read(account: account, token: "fixture-token", messageID: "abc123")
         #expect(message.body == "Hello")
+        #expect(message.receivedAt != nil)
+        #expect(message.attachments.first?.name == "fixture.pdf")
+        #expect(message.attachments.first?.byteCount == 21)
         try await connector.send(draft: draft, account: account, token: "fixture-token")
+        try await connector.archive(account: account, token: "fixture-token", messageID: "abc123")
     }
 
     @Test func outlookUsesImmutableIDsAndPlainText() async throws {
@@ -57,8 +66,16 @@ struct ToolkitMailConnectorTests {
                 #expect(request.value(forHTTPHeaderField: "Prefer")?.contains("ImmutableId") == true)
                 return Data(#"{"value":[{"id":"id-a","subject":"Fixture","bodyPreview":"Preview"}]}"#.utf8)
             case "/v1.0/me/messages/id-a":
-                #expect(request.value(forHTTPHeaderField: "Prefer")?.contains("body-content-type") == true)
-                return Data(#"{"id":"id-a","subject":"Fixture","body":{"contentType":"text","content":"Hello"}}"#.utf8)
+                #expect(request.value(forHTTPHeaderField: "Prefer")?.contains("ImmutableId") == true)
+                return Data(#"{"id":"id-a","subject":"Fixture","parentFolderId":"original-inbox","hasAttachments":true,"receivedDateTime":"2026-11-22T01:00:00Z","body":{"contentType":"text","content":"Hello"}}"#.utf8)
+            case "/v1.0/me/messages/id-a/attachments":
+                return Data(#"{"value":[{"name":"outlook.pdf","contentType":"application/pdf","size":10,"isInline":false}]}"#.utf8)
+            case "/v1.0/me/mailFolders/inbox":
+                return Data(#"{"id":"original-inbox"}"#.utf8)
+            case "/v1.0/me/mailFolders/inbox/messages/id-a/move":
+                let object = try requestObject(request)
+                #expect(object["destinationId"] as? String == "archive")
+                return Data()
             case "/v1.0/me/sendMail":
                 let object = try requestObject(request)
                 let message = try #require(object["message"] as? [String: Any])
@@ -76,7 +93,10 @@ struct ToolkitMailConnectorTests {
         #expect(result.first?.id == "id-a")
         let message = try await connector.read(account: account, token: "fixture-token", messageID: "id-a")
         #expect(message.body == "Hello")
+        #expect(message.receivedAt != nil)
+        #expect(message.attachments.first?.name == "outlook.pdf")
         try await connector.send(draft: draft, account: account, token: "fixture-token")
+        try await connector.archive(account: account, token: "fixture-token", messageID: "id-a")
     }
 
     @Test func fastmailLooksUpSessionAndIdentityAndSubmitsExplicitDraft() async throws {
@@ -101,17 +121,24 @@ struct ToolkitMailConnectorTests {
                 result = #"{"ids":["abc"]}"#
                 #expect((input["filter"] as? [String: String])?["text"] == "project")
             case "Email/get":
-                result = #"{"list":[{"id":"abc","subject":"Fixture","textBody":[{"partId":"a","type":"text/plain"}],"bodyValues":{"a":{"value":"Hello"}}}]}"#
+                result = #"{"state":"state-before","list":[{"id":"abc","subject":"Fixture","receivedAt":"2026-11-22T01:00:00.123Z","mailboxIds":{"inbox-id":true},"attachments":[{"name":"fastmail.pdf","type":"application/pdf","size":42,"disposition":"attachment"}],"textBody":[{"partId":"a","type":"text/plain"}],"bodyValues":{"a":{"value":"Hello"}}}]}"#
                 #expect(input["ids"] as? [String] == ["abc"])
             case "Identity/get":
                 result = #"{"list":[{"id":"identity","email":"owner@example.com"}]}"#
             case "Mailbox/get":
-                result = #"{"list":[{"id":"d","role":"drafts"},{"id":"s","role":"sent"}]}"#
+                result = #"{"list":[{"id":"d","role":"drafts"},{"id":"s","role":"sent"},{"id":"inbox-id","role":"inbox"},{"id":"archive-id","role":"archive"}]}"#
             case "Email/set":
-                let create = input["create"] as? [String: [String: Any]]
-                #expect(create?["draft"]?["subject"] as? String == draft.subject)
-                #expect((create?["draft"]?["mailboxIds"] as? [String: Bool])?["d"] == true)
-                result = #"{"created":{"draft":{"id":"new-email"}}}"#
+                if let update = input["update"] as? [String: [String: Any]] {
+                    #expect(input["ifInState"] as? String == "state-before")
+                    #expect(update["abc"]?["mailboxIds/inbox-id"] is NSNull)
+                    #expect(update["abc"]?["mailboxIds/archive-id"] as? Bool == true)
+                    result = #"{"updated":{"abc":null}}"#
+                } else {
+                    let create = input["create"] as? [String: [String: Any]]
+                    #expect(create?["draft"]?["subject"] as? String == draft.subject)
+                    #expect((create?["draft"]?["mailboxIds"] as? [String: Bool])?["d"] == true)
+                    result = #"{"created":{"draft":{"id":"new-email"}}}"#
+                }
             case "EmailSubmission/set":
                 let create = input["create"] as? [String: [String: String]]
                 #expect(create?["send"]?["emailId"] == "new-email")
@@ -128,7 +155,10 @@ struct ToolkitMailConnectorTests {
         #expect(result.first?.body == nil)
         let message = try await connector.read(account: account, token: "fixture-token", messageID: "abc")
         #expect(message.body == "Hello")
+        #expect(message.receivedAt != nil)
+        #expect(message.attachments.first?.name == "fastmail.pdf")
         try await connector.send(draft: draft, account: account, token: "fixture-token")
+        try await connector.archive(account: account, token: "fixture-token", messageID: "abc")
     }
 
     @Test func fastmailRejectsAnAPIEndpointOnAnotherOrigin() async throws {

@@ -1,7 +1,9 @@
 # Toolkit mail accounts
 
 Aides supports Gmail, Outlook and Fastmail accounts configured on the server.
-The Toolkit can search mail, read message text and prepare a plain-text draft.
+The Toolkit can search mail, read message text, list attachment metadata and
+prepare a plain-text draft. Attachment metadata includes filenames, types and
+sizes where the provider supplies them.
 Sending requires confirmation of the exact sender, recipients, subject and body
 on a paired desktop. Drafts stay in Aides until confirmation. Outlook's
 accepted response and Fastmail's submission receipt indicate that the provider
@@ -26,23 +28,28 @@ same provider.
 
 Place each provider credential in `mail-<id>.token` in the same directory.
 Use the account's primary mailbox email address, as reported by its provider.
-Aides checks this identity before using the credential. With `allowSend`
-omitted, mail stays read-only even if the provider token can send. Keep the
-tokens in the protected host directory. Drafts and mail tool results can be
+Aides checks this identity before using the credential. Sending requires
+`allowSend` in addition to the provider permission. Keep the tokens in the
+protected host directory. Drafts and mail tool results can be
 viewed on paired devices. In Settings → Toolkit → Mail, the account list shows
-whether a credential is available on the host.
+whether a credential is available on the host. Add `"allowArchive":true` to enable explicit archiving for
+a selected message on one account.
 
 - **Gmail.** Obtain a delegated OAuth access token with the
   `https://www.googleapis.com/auth/gmail.readonly` scope. To enable confirmed
   sending, add `https://www.googleapis.com/auth/gmail.send` when requesting
-  authorization. [Google OAuth and Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)
+  authorization. Confirmed archiving requires the
+  `https://www.googleapis.com/auth/gmail.modify` scope.
+  [Google OAuth and Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)
 - **Outlook.** Obtain a delegated Microsoft Graph access token with
   `User.Read` and `Mail.Read`. Add `Mail.Send` if sending is enabled. The
-  token should identify your signed-in mailbox in Microsoft Graph.
+  token should identify your signed-in mailbox in Microsoft Graph. Confirmed
+  archiving requires `Mail.ReadWrite`.
   [Microsoft Graph permissions](https://learn.microsoft.com/en-us/graph/permissions-reference)
 - **Fastmail.** Generate a JMAP API token using Fastmail's account settings,
   or provide a Fastmail OAuth access token with mail access. For sending, it
-  must also have mail submission access. [Fastmail JMAP and authentication](https://www.fastmail.com/dev/)
+  must also have mail submission access. A token used to archive messages needs
+  mail write access. [Fastmail JMAP and authentication](https://www.fastmail.com/dev/)
 
 You can replace an expired token in its host file. Aides reads the file for
 each operation. OAuth sign-in and token refresh currently take place outside
@@ -58,3 +65,16 @@ network interruption leaves the outcome uncertain, the draft becomes
 interrupted and the same draft ID cannot be sent again. Inspect the provider's
 Sent folder before creating a new draft. With Fastmail, a failed submission can
 leave a copy in the provider's Drafts folder.
+
+## Archive an Inbox message
+
+Select one message and confirm its preview and mailbox. Archiving removes it
+from Inbox. Gmail removes its `INBOX` label. Outlook moves the message from
+Inbox to its Archive folder. Fastmail preserves its other labels and moves
+Inbox-only messages to Archive. Outlook and Fastmail check whether the selected
+message is still in Inbox before changing it. If Fastmail has no Archive folder
+and the message only belongs to Inbox, Aides leaves the message in place.
+
+Aides saves the approval before calling the provider. A disrupted operation
+leaves a receipt marked interrupted. Check the provider before making another
+archive request.

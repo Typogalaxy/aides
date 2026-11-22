@@ -27,7 +27,7 @@ def existing_draft(client, identifier):
     return next(item for item in client.request("GET", "/toolkit/mail/drafts") if item["id"] == identifier)
 
 
-def simulate_stopped_dispatch(directory, draft_id):
+def simulate_stopped_dispatch(directory, draft_id, archive):
     with sqlite3.connect(directory / "aides.sqlite3") as database:
         payload, = database.execute("SELECT payload FROM state WHERE id = 1").fetchone()
         state = json.loads(payload)
@@ -35,6 +35,7 @@ def simulate_stopped_dispatch(directory, draft_id):
         drafts = values.values() if isinstance(values, dict) else values[1::2]
         draft = next(item for item in drafts if item["id"] == draft_id)
         draft["status"] = "sending"
+        state["toolkitMailArchives"] = [archive["id"], archive]
         database.execute("UPDATE state SET payload = ? WHERE id = 1", (json.dumps(state).encode(),))
 
 
@@ -55,8 +56,10 @@ def exercise(server):
     anonymous = server.start()
     accounts = "/toolkit/mail/accounts"
     drafts = "/toolkit/mail/drafts"
+    archives = "/toolkit/mail/archives"
     anonymous.request("GET", accounts, status=401)
     anonymous.post(drafts, {}, status=401)
+    anonymous.request("GET", archives, status=401)
     owner = anonymous.post("/pair", {"code": invite, "name": "Smoke mail owner"})
     client = Client(server.port, owner["token"])
 
@@ -70,6 +73,12 @@ def exercise(server):
     require(not next(item for item in records if item["id"] == "work")["available"],
             "A group-readable token was accepted")
     token.chmod(0o600)
+    archive_id = str(uuid.uuid4()).upper()
+    archive_request = {"id": archive_id, "accountID": "work", "messageID": "fixture"}
+    client.post(archives, archive_request, status=403)
+    account_data[0]["allowArchive"] = True
+    save_private(configuration, json.dumps(account_data))
+    client.post(archives, {**archive_request, "messageID": "../invalid"}, status=400)
 
     first_id, second_id = [str(uuid.uuid4()).upper() for _ in range(2)]
     draft = {"id": first_id, "accountID": "work", "to": ["recipient@example.com"],
@@ -94,13 +103,24 @@ def exercise(server):
     save_private(token, "synthetic-mail-token")
     client.post(drafts, {**draft, "id": second_id})
     server.stop()
-    simulate_stopped_dispatch(server.data, second_id)
+    archive = {
+        **archive_request, "accountProvider": "outlook", "accountLabel": "Work", "accountAddress": "owner@example.com",
+        "subject": "Archive fixture", "from": "sender@example.com", "requestedByDeviceID": owner["deviceID"],
+        "status": "archiving", "createdAt": created["createdAt"], "updatedAt": created["updatedAt"],
+    }
+    simulate_stopped_dispatch(server.data, second_id, archive)
     server.start()
     require(existing_draft(client, second_id)["status"] == "interrupted",
             "Server restart did not mark recorded dispatch interrupted")
     require(client.post(f"{drafts}/{second_id}/decision", {"approved": True})["status"] == "interrupted",
             "An interrupted dispatch could be sent a second time")
-    print("PASS mail discovery, private credential files, draft approval, and restart without replay")
+    archive_result, = client.request("GET", archives)
+    require(archive_result["status"] == "interrupted", "Interrupted archive did not persist across restart")
+    require(client.post(archives, archive_request) == archive_result,
+            "A retry did not return the interrupted archive receipt")
+    require(client.post(f"{archives}/{archive_id}/decision", {"approved": True})["status"] == "interrupted",
+            "An interrupted archive could be dispatched again")
+    print("PASS mail discovery, private credential files, explicit approval, and restart without replay")
 
 
 def main():

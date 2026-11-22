@@ -83,6 +83,21 @@ public struct ToolkitMailMessage: Codable, Identifiable, Sendable {
     public let receivedAt: Date?
     public let attachments: [ToolkitMailAttachment]
 
+    private enum CodingKeys: String, CodingKey { case id, subject, from, preview, body, receivedAt, attachments }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try values.decode(String.self, forKey: .id),
+            subject: try values.decode(String.self, forKey: .subject),
+            from: try values.decode(String.self, forKey: .from),
+            preview: try values.decode(String.self, forKey: .preview),
+            body: try values.decodeIfPresent(String.self, forKey: .body),
+            receivedAt: try values.decodeIfPresent(Date.self, forKey: .receivedAt),
+            attachments: try values.decodeIfPresent([ToolkitMailAttachment].self, forKey: .attachments) ?? []
+        )
+    }
+
     public init(
         id: String, subject: String, from: String, preview: String, body: String? = nil,
         receivedAt: Date? = nil, attachments: [ToolkitMailAttachment] = []
