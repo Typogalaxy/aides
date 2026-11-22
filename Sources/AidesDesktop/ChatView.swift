@@ -8,6 +8,8 @@ struct ChatView: View {
     let showWorker: (UUID) -> Void
     let showComputerUse: () -> Void
 
+    @Environment(\.desktopTypography) private var typography
+
     private let conversationWidth: CGFloat = 736
 
     @ViewState private var showsTask = false
@@ -272,10 +274,16 @@ struct ChatView: View {
                 if let error = workspace.appshots.error {
                     Text(error).desktopUIFont(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                TextField("Message \(conversation.title)…", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(2...7)
-                    .accessibilityLabel("Message")
+                let prompt = "Message \(conversation.title)…"
+                ChatComposerInput(text: $draft, placeholder: prompt, fontSize: typography.uiSize, send: sendDraft)
+                    .overlay(alignment: .topLeading) {
+                        if draft.isEmpty {
+                            Text(prompt)
+                                .foregroundStyle(.placeholder)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .padding(.vertical, 4)
                     .padding(.horizontal, 3)
                 HStack {
@@ -300,25 +308,7 @@ struct ChatView: View {
                         }
                     }
                     Spacer()
-                    Button {
-                        let original = draft
-                        let message = original.trimmed
-                        let appshot = workspace.appshots.draft
-                        let mailAccount = appshot == nil ? toolkitMailAccountID : nil
-                        let resource = appshot == nil && mailAccount == nil ? toolkitResourceID : nil
-                        let conversationID = conversation.id
-                        Task {
-                            if await workspace.send(
-                                message, in: conversationID, toolkitResourceID: resource, toolkitMailAccountID: mailAccount,
-                                computerObservation: appshot?.observation
-                            ) {
-                                if let appshot { workspace.appshots.remove(appshot.id) }
-                                if draft == original { draft = "" }
-                                if toolkitResourceID == resource { toolkitResourceID = nil }
-                                if toolkitMailAccountID == mailAccount { toolkitMailAccountID = nil }
-                            }
-                        }
-                    } label: {
+                    Button(action: sendDraft) {
                         Label("Send", systemImage: "arrow.up")
                     }
                     .buttonStyle(.borderedProminent)
@@ -340,6 +330,28 @@ struct ChatView: View {
             .frame(maxWidth: .infinity)
         }
     }
+    private func sendDraft() {
+        let original = draft
+        let message = original.trimmed
+        guard !workspace.isWorking, !message.isEmpty else { return }
+
+        let appshot = workspace.appshots.draft
+        let mailAccount = appshot == nil ? toolkitMailAccountID : nil
+        let resource = appshot == nil && mailAccount == nil ? toolkitResourceID : nil
+        let conversationID = conversation.id
+        Task {
+            if await workspace.send(
+                message, in: conversationID, toolkitResourceID: resource, toolkitMailAccountID: mailAccount,
+                computerObservation: appshot?.observation
+            ) {
+                if let appshot { workspace.appshots.remove(appshot.id) }
+                if draft == original { draft = "" }
+                if toolkitResourceID == resource { toolkitResourceID = nil }
+                if toolkitMailAccountID == mailAccount { toolkitMailAccountID = nil }
+            }
+        }
+    }
+
 }
 
 private struct ChatMessageView: View {
