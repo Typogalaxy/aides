@@ -204,7 +204,8 @@ actor JobRunner {
                     let message = Message(
                         reply.text, role: .assistant,
                         scheduleSuggestion: canSuggestSchedule && suggestion == nil ? reply.schedule : nil,
-                        toolkitSuggestion: suggestion
+                        toolkitSuggestion: suggestion,
+                        notificationKind: work.kind == .reminder ? .reminder : nil
                     )
                     if suggestion != nil { state.app.tasks[index].toolkitSuggestionMessageID = message.id }
                     let origin = state.replyMessages[work.id]
@@ -239,7 +240,7 @@ actor JobRunner {
                              delta.modified.map { "Changed: " + $0 } +
                              delta.removed.map { "Removed: " + $0 }).joined(separator: "\n")
                 let notice = "[\(project.name)] \(delta.total) file changes\n\(names)"
-                state.app.threads[index].messages.append(Message(notice, role: .system))
+                state.app.threads[index].messages.append(Message(notice, role: .system, notificationKind: .sourceUpdate))
                 state.revise()
             }
         }

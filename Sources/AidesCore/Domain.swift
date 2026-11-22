@@ -8,6 +8,10 @@ public enum MessageRole: String, Codable, Sendable {
     case user, assistant, system
 }
 
+public enum NotificationKind: String, Codable, Sendable {
+    case reminder, sourceUpdate
+}
+
 public struct Message: Codable, Identifiable, Sendable {
     public let id: UUID
     public let text: String
@@ -16,10 +20,12 @@ public struct Message: Codable, Identifiable, Sendable {
 
     public let scheduleSuggestion: ScheduleSuggestion?
     public let toolkitSuggestion: ToolkitSuggestion?
+    public let notificationKind: NotificationKind?
 
     public init(
         _ text: String, role: MessageRole, now: Date = .now,
-        scheduleSuggestion: ScheduleSuggestion? = nil, toolkitSuggestion: ToolkitSuggestion? = nil
+        scheduleSuggestion: ScheduleSuggestion? = nil, toolkitSuggestion: ToolkitSuggestion? = nil,
+        notificationKind: NotificationKind? = nil
     ) {
         id = UUID()
         self.text = text
@@ -27,6 +33,7 @@ public struct Message: Codable, Identifiable, Sendable {
         createdAt = now
         self.scheduleSuggestion = scheduleSuggestion
         self.toolkitSuggestion = toolkitSuggestion
+        self.notificationKind = notificationKind
     }
 }
 
