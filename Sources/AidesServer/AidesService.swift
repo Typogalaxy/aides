@@ -52,6 +52,7 @@ struct AidesService: Sendable {
         try await change { state in
             state.app.devices.removeAll { $0.id == id }
             state.tokenOwners = state.tokenOwners.filter { $0.value != id }
+            Self.revokeDeviceFileAccess(deviceID: id, in: &state)
         }
     }
 

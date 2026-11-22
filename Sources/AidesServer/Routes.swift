@@ -114,6 +114,30 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.closeReview(id(request)))
     }
+    api.get("device-files") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.deviceFileManifest(deviceID: device))
+    }
+    api.post("device-files", "grants") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.grantDeviceFile(decode(NewDeviceFileGrant.self, request), deviceID: device))
+    }
+    api.delete("device-files", "grants", ":id") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.revokeDeviceFileGrant(id(request), deviceID: device))
+    }
+    api.post("device-files", "jobs") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.createDeviceFileJob(decode(NewDeviceFileJob.self, request), deviceID: device))
+    }
+    api.post("device-files", "jobs", "next") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.claimDeviceFileJob(deviceID: device))
+    }
+    api.post("device-files", "jobs", ":id", "finish") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.finishDeviceFileJob(id(request), input: decode(FinishDeviceFileJob.self, request), deviceID: device))
+    }
 }
 
 private func id(_ request: Request) throws -> UUID {

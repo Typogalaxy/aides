@@ -1,3 +1,4 @@
+import AidesCore
 import Foundation
 import Vapor
 
@@ -148,10 +149,10 @@ extension AidesService {
         do {
             if input.operation != .list || !path.isEmpty { try ProjectFiles.validate(path: path) }
             if input.operation == .move {
-                guard let destination = input.destination, destination != path else { throw ProjectFileError.invalidPath }
+                guard let destination = input.destination, destination != path else { throw Abort(.badRequest) }
                 try ProjectFiles.validate(path: destination)
             } else if input.destination != nil {
-                throw ProjectFileError.invalidPath
+                throw Abort(.badRequest)
             }
         } catch {
             throw Abort(.badRequest, reason: "Use relative paths within the granted folder.")
