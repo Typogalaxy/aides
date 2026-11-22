@@ -30,6 +30,16 @@ them. To clear a path, stop the service and start it once with that variable
 set to an empty value. Login credentials remain under each official tool's
 control.
 
+## Optional local mail transport
+
+Aides uses a sendmail-compatible executable you select on the server Mac. To
+configure one, stop the background service, then start it with
+`AIDES_SENDMAIL_PATH` set to the executable's absolute path and
+`AIDES_MAIL_FROM` set to the sender address. These two settings persist across
+normal restarts. Set either to an empty value on a later explicit start to
+disable the integration. Aides requests confirmation of the recipient, subject
+and exact message before sending.
+
 ## Connect another Mac privately
 
 Aides listens on `127.0.0.1:8317` by default. On the server Mac itself, connect

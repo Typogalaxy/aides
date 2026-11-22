@@ -39,18 +39,23 @@ case "${1:-}" in
         plutil -insert EnvironmentVariables.AIDES_HOST -string "$host" "$staged"
         plutil -insert EnvironmentVariables.AIDES_PORT -string "$port" "$staged"
         plutil -insert EnvironmentVariables.PATH -string "$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" "$staged"
-        for variable in AIDES_CODEX_PATH AIDES_CLAUDE_CODE_PATH; do
+        for variable in AIDES_CODEX_PATH AIDES_CLAUDE_CODE_PATH AIDES_SENDMAIL_PATH AIDES_MAIL_FROM; do
             if [[ "${!variable+x}" == x ]]; then
-                executable="${!variable}"
-                if [[ -n "$executable" && ( "$executable" != /* || ! -f "$executable" || ! -x "$executable" ) ]]; then
-                    printf 'Set %s to an installed, executable CLI on this Mac.\n' "$variable" >&2
+                value="${!variable}"
+                if [[ "$variable" == AIDES_MAIL_FROM ]]; then
+                    if [[ -n "$value" && ( "$value" != *@* || "$value" == *[[:space:][:cntrl:]]* ) ]]; then
+                        printf 'Set %s to a sender email address.\n' "$variable" >&2
+                        exit 64
+                    fi
+                elif [[ -n "$value" && ( "$value" != /* || ! -f "$value" || ! -x "$value" ) ]]; then
+                    printf 'Set %s to an installed, executable tool on this Mac.\n' "$variable" >&2
                     exit 64
                 fi
             else
-                executable="$(plutil -extract "EnvironmentVariables.$variable" raw "$configuration" 2>/dev/null || true)"
+                value="$(plutil -extract "EnvironmentVariables.$variable" raw "$configuration" 2>/dev/null || true)"
             fi
-            if [[ -n "$executable" ]]; then
-                plutil -insert "EnvironmentVariables.$variable" -string "$executable" "$staged"
+            if [[ -n "$value" ]]; then
+                plutil -insert "EnvironmentVariables.$variable" -string "$value" "$staged"
             fi
         done
         mv "$staged" "$configuration"
