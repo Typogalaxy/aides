@@ -16,6 +16,11 @@ import threading
 import time
 
 
+SCHEDULE_REQUEST = "Suggest a reminder for the synthetic follow-up."
+SCHEDULE_REPLY = "Confirm this synthetic reminder when ready."
+SCHEDULE_TITLE = "Synthetic follow-up"
+
+
 class SmokeFailure(Exception):
     pass
 
@@ -89,6 +94,18 @@ class OllamaFixture(BaseHTTPRequestHandler):
                 "summary": "Update the isolated fixture",
                 "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
             })
+        elif user_text(request) == SCHEDULE_REQUEST:
+            first_run = datetime.now(timezone.utc) + timedelta(minutes=10)
+            answer = json.dumps({
+                "text": SCHEDULE_REPLY,
+                "schedule": {
+                    "title": SCHEDULE_TITLE,
+                    "firstRun": first_run.isoformat(timespec="seconds"),
+                    "timeZone": "Australia/Melbourne",
+                    "repeatRule": "once",
+                    "kind": "reminder",
+                },
+            })
         # Echo only controlled markers, never the prompt or API credentials.
         response = json.dumps({
             "message": {"role": "assistant", "content": answer},
@@ -101,6 +118,13 @@ class OllamaFixture(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
         self.wfile.write(response)
+
+
+def user_text(request):
+    return next(
+        (message["content"] for message in reversed(request["messages"]) if message["role"] == "user"),
+        "",
+    )
 
 
 class IsolatedServer:
@@ -181,7 +205,7 @@ def wait_for_reply(client, thread, expected):
         conversation = find(client.state()["threads"], id=thread)
         return find(conversation["messages"], role="assistant", text=expected)
 
-    wait_for(check, "Conversation reply was missing or had the wrong local context")
+    return wait_for(check, "Conversation reply was missing or had the wrong local context")
 
 
 def add_model(client, name, kind, model, endpoint=""):
@@ -272,6 +296,24 @@ def exercise(server, mock_ollama):
     wait_for_reply(client, secretary, "Fixture reminder")
     print("PASS delayed worker pinning and scheduled reminder delivery")
 
+    client.post(f"/threads/{secretary}/messages", {"text": SCHEDULE_REQUEST})
+    reply = wait_for_reply(client, secretary, SCHEDULE_REPLY)
+    suggestion = reply["scheduleSuggestion"]
+    require(suggestion["title"] == SCHEDULE_TITLE, "Secretary did not propose the expected reminder")
+    require(not find(client.state()["schedules"], title=SCHEDULE_TITLE), "Suggestion scheduled a reminder without approval")
+    accept_schedule = f'/schedules/suggestions/{reply["id"]}/accept'
+    anonymous.post(accept_schedule, {}, status=401)
+    state = client.post(accept_schedule, {})
+    accepted = find(state["schedules"], title=SCHEDULE_TITLE)
+    require(accepted is not None, "Confirmation did not create a reminder")
+    for key in ("title", "kind", "repeatRule", "timeZone", "firstRun"):
+        require(accepted[key] == suggestion[key], f"Confirmation changed the proposed {key}")
+    require(accepted["threadID"] == secretary, "Reminder lost its originating conversation")
+    state = client.post(accept_schedule, {})
+    require([item["id"] for item in state["schedules"] if item["title"] == SCHEDULE_TITLE] == [accepted["id"]],
+            "Repeating confirmation created another reminder")
+    print("PASS explicit and idempotent secretary reminder confirmation")
+
     cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
     state = client.post("/tasks", {"title": "Cloud fixture request", "modelID": cloud})
     cloud_task = find(state["tasks"], title="Cloud fixture request")
@@ -333,6 +375,9 @@ def exercise(server, mock_ollama):
     completed = [task for task in restored["tasks"] if task.get("scheduleID") == schedule["id"]]
     require(len(completed) == 1 and completed[0]["status"] == "completed", "Reminder was lost or repeated")
     require(find(restored["schedules"], id=schedule["id"]).get("nextRun") is None, "One-time schedule was left active")
+    state = client.post(accept_schedule, {})
+    require([item["id"] for item in state["schedules"] if item["title"] == SCHEDULE_TITLE] == [accepted["id"]],
+            "Reminder confirmation did not persist across restart")
     guest_client.request("GET", "/state", status=401)
     print("PASS durable state, one-time schedules, and persisted device revocation")
 
