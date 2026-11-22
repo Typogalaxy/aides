@@ -25,19 +25,19 @@ struct ToolkitMailWatchesSection: View {
             ForEach(watches) { watch in
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
-                        Text(watch.query).font(.body.weight(.medium))
+                        Text(watch.query).desktopUIFont(.body, weight: .medium)
                         Spacer()
                         Button(watch.paused ? "Resume" : "Pause") { Task { await toggle(watch) } }
                         Button("Remove", role: .destructive) { removing = watch }
                     }
                     let interval = "\(watch.intervalMinutes) min"
                     Text("\(watch.accountLabel) · \(watch.paused ? "Paused" : interval)")
-                        .font(.caption)
+                        .desktopUIFont(.caption)
                         .foregroundStyle(.secondary)
                     if let checked = watch.lastCheckedAt {
                         LabeledContent("Latest check", value: checked.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
-                        Text("\(watch.matchingCount) recent matches").font(.caption).foregroundStyle(.secondary)
+                            .desktopUIFont(.caption)
+                        Text("\(watch.matchingCount) recent matches").desktopUIFont(.caption).foregroundStyle(.secondary)
                     }
                     if let error = watch.lastError {
                         Text(error).foregroundStyle(.orange).textSelection(.enabled)
@@ -115,7 +115,7 @@ private struct AddToolkitMailWatchSheet: View {
                 TextField("Search terms", text: $query)
                 Stepper("Check every \(intervalMinutes) minutes", value: $intervalMinutes, in: 5...1440, step: 5)
                 Text("The first check establishes the baseline. Later matches create a notice in Aides.")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }

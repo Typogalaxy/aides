@@ -25,13 +25,13 @@ struct ToolkitMailAccountPicker: View {
         .help("Authorize one local draft proposal from a selected account.")
         .popover(isPresented: $isOpen, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Draft mail from").font(.headline)
+                Text("Draft mail from").desktopUIFont(.headline)
                 Text("Review the prepared draft in Toolkit before sending.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .desktopUIFont(.caption).foregroundStyle(.secondary)
                 if loading {
                     ProgressView().controlSize(.small)
                 } else if let error {
-                    Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                    Text(error).desktopUIFont(.caption).foregroundStyle(.orange).textSelection(.enabled)
                     Button("Retry") { Task { await load() } }
                 } else if accounts.isEmpty {
                     Text("No account is available for sending.").foregroundStyle(.secondary)
@@ -47,7 +47,7 @@ struct ToolkitMailAccountPicker: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(account.label)
                                             Text(verbatim: account.address)
-                                                .font(.caption).foregroundStyle(.secondary)
+                                                .desktopUIFont(.caption).foregroundStyle(.secondary)
                                         }
                                         Spacer()
                                         if selection == account.id { Image(systemName: "checkmark") }
@@ -102,7 +102,7 @@ struct ToolkitMailSuggestionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("Mail draft proposal", systemImage: "envelope")
-                .font(.callout.weight(.medium))
+                .desktopUIFont(.callout, weight: .medium)
             LabeledContent("Account", value: prepared?.accountAddress ?? suggestion.accountID)
             LabeledContent("To", value: suggestion.to.joined(separator: ", "))
             LabeledContent("Subject", value: suggestion.subject)
@@ -124,7 +124,7 @@ struct ToolkitMailSuggestionView: View {
                 Text("This proposal is unavailable.").foregroundStyle(.secondary)
             }
         }
-        .font(.callout)
+        .desktopUIFont(.callout)
         .textSelection(.enabled)
         .padding(12)
         .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))

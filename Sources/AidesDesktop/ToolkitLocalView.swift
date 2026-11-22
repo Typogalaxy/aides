@@ -67,20 +67,20 @@ struct ToolkitLocalView: View {
                     if items.isEmpty { Text("No results.").foregroundStyle(.secondary) }
                     ForEach(items) { item in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title).font(.body.weight(.medium))
+                            Text(item.title).desktopUIFont(.body, weight: .medium)
                             if let date = item.date {
                                 Text(date.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption)
+                                    .desktopUIFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             if let source = item.source, !source.isEmpty {
-                                Text(source).font(.caption).foregroundStyle(.secondary)
+                                Text(source).desktopUIFont(.caption).foregroundStyle(.secondary)
                             }
                             if let detail = item.detail, !detail.isEmpty {
                                 DisclosureGroup("Details") {
                                     ScrollView {
                                         Text(detail)
-                                            .font(.system(.caption, design: .monospaced))
+                                            .desktopUIFont(.caption, design: .monospaced)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .frame(maxHeight: 200)

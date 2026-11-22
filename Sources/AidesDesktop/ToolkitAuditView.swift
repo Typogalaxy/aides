@@ -24,9 +24,9 @@ struct ToolkitAuditView: View {
                 ForEach(entries) { entry in
                     VStack(alignment: .leading, spacing: 4) {
                         LabeledContent(entry.action, value: "HTTP \(entry.status)")
-                            .font(.callout.monospaced())
+                            .desktopUIFont(.callout, design: .monospaced)
                         Text("\(workspace.toolkitDeviceName(entry.deviceID)) · \(entry.date.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
+                            .desktopUIFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 3)

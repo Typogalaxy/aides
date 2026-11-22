@@ -26,7 +26,7 @@ struct ComputerUseView: View {
                     Button("Direct controls…") { showsDirectControls = true }
                 }
                 Text("An Aides task can inspect and operate approved applications on a paired Mac. The target Mac must remain connected and approve access.")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
                 if relay.isUnavailable {
                     Text("This server build does not support Computer Use.").foregroundStyle(.secondary)
@@ -48,7 +48,7 @@ struct ComputerUseView: View {
                         set: { workspace.appshots.includeImages = $0 }
                     ))
                     Text("Press \(ComputerAppshotCapture.shortcut) in the target app. Review the attached window in Aides before you send it.")
-                        .font(.caption)
+                        .desktopUIFont(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
                         Button("Enable Accessibility…") { promptAccessibility() }
@@ -56,10 +56,10 @@ struct ComputerUseView: View {
                             Button("Enable Screen Recording…") { _ = CGRequestScreenCaptureAccess() }
                         }
                     }
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                 }
                 if let error = workspace.appshots.error {
-                    Text(error).font(.caption).foregroundStyle(.orange)
+                    Text(error).desktopUIFont(.caption).foregroundStyle(.orange)
                 }
             }
             if !relay.rememberedApprovals.isEmpty {
@@ -69,8 +69,8 @@ struct ComputerUseView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(workspace.toolkitDeviceName(approval.requesterID))
                                 Text(approval.appIDs.joined(separator: ", "))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Text(approvalSummary(approval)).font(.caption).foregroundStyle(.secondary)
+                                    .desktopUIFont(.caption).foregroundStyle(.secondary)
+                                Text(approvalSummary(approval)).desktopUIFont(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("Forget", role: .destructive) { relay.forgetApproval(approval.id) }
@@ -106,14 +106,14 @@ struct ComputerUseView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(run.instruction).lineLimit(3).textSelection(.enabled)
                 Spacer()
-                Text(run.status.displayName).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(run.status.displayName).desktopUIFont(.caption, weight: .semibold).foregroundStyle(.secondary)
             }
             Text("\(workspace.toolkitDeviceName(run.deviceID)) · \(run.appIDs.joined(separator: ", "))")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
             if let message = run.message {
-                Text(message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(message).desktopUIFont(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
             if let result = run.result {
                 DisclosureGroup("Result") { Text(result).textSelection(.enabled) }
@@ -122,7 +122,7 @@ struct ComputerUseView: View {
                 DisclosureGroup("Activity (\(run.steps.count))") {
                     ForEach(run.steps, id: \.number) { step in
                         LabeledContent(step.kind.displayName, value: step.appID ?? "Desktop")
-                            .font(.caption)
+                            .desktopUIFont(.caption)
                     }
                 }
             }
@@ -184,20 +184,20 @@ struct ComputerUseView: View {
                     .disabled(run.includeImages || !readyForBackground)
                 if run.includeImages {
                     Text("Background mode is available for tasks that use accessibility information only.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption).foregroundStyle(.secondary)
                 } else if !readyForBackground {
                     Text("Open the selected apps before enabling background use.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
                 if allowBackground {
                     Text("Background mode uses accessibility controls and keeps the pointer and keyboard available.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
                 Toggle("Remember app access for this Mac and requester", isOn: $rememberPermission)
                     .disabled(allowRoutineActions)
                 if rememberPermission {
                     Text("Future tasks with this same requester, app list and capture setting may start while this Mac is unlocked. Desktop actions still require review.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
                 HStack {
                     Button("Enable Accessibility…") { promptAccessibility() }
@@ -205,7 +205,7 @@ struct ComputerUseView: View {
                         Button("Enable Screen Recording…") { _ = CGRequestScreenCaptureAccess() }
                     }
                 }
-                .font(.caption)
+                .desktopUIFont(.caption)
             case .action(let run, let action):
                 LabeledContent("Action", value: action.kind.displayName)
                 if let app = action.appID { LabeledContent("App", value: app) }
@@ -393,7 +393,7 @@ struct NewComputerUseSheet: View {
                 } else if deviceID != nil {
                     TextField("App bundle IDs", text: $remoteApps, prompt: Text("com.apple.TextEdit"))
                     Text("Enter up to five installed app bundle IDs, separated by commas in the order you want them inspected. Review and allow them on the target Mac.")
-                        .font(.caption)
+                        .desktopUIFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Picker("Local model", selection: $modelID) {
@@ -405,11 +405,11 @@ struct NewComputerUseSheet: View {
                 Toggle("Share window snapshots with the local model", isOn: $includeImages)
                 if includeImages {
                     Text("Choose an Ollama model that accepts images.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
                 if localModels.isEmpty {
                     Text("Configure a local Ollama model in Settings to run desktop tasks.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)

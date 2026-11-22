@@ -18,7 +18,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 520)
+            .frame(maxWidth: 640)
             .padding(16)
 
             switch pane {
@@ -26,6 +26,7 @@ struct SettingsView: View {
             case .memory: MemorySettingsView(workspace: workspace)
             case .devices: DeviceSettingsView(workspace: workspace)
             case .toolkit: ToolkitSettingsView(workspace: workspace, pane: $toolkitPane)
+            case .appearance: AppearanceSettingsView()
             case .application: ApplicationSettingsView(updates: updates)
             }
         }
@@ -37,6 +38,7 @@ enum SettingsPane: String, CaseIterable {
     case memory = "Memory"
     case devices = "Devices"
     case toolkit = "Toolkit"
+    case appearance = "Appearance"
     case application = "Application"
 }
 
@@ -87,9 +89,9 @@ private struct ModelSettingsView: View {
                 ForEach(workspace.state.models) { model in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(model.name).font(.body.weight(.medium))
+                            Text(model.name).desktopUIFont(.body, weight: .medium)
                             Text("\(model.kindLabel) · \(model.model)")
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -149,7 +151,7 @@ private struct AddModelSheet: View {
                     TextField("Model identifier", text: $model)
                     if kind == .codex || kind == .claudeCode {
                         Text("Sign in to the official CLI on the server Mac. Set its absolute path using \(kind == .codex ? "AIDES_CODEX_PATH" : "AIDES_CLAUDE_CODE_PATH") before starting the server.")
-                            .font(.caption)
+                            .desktopUIFont(.caption)
                             .foregroundStyle(.secondary)
                     } else {
                         TextField("Endpoint", text: $endpoint)
@@ -215,9 +217,9 @@ private struct DeviceSettingsView: View {
                 ForEach(workspace.state.devices) { device in
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(device.name).font(.body.weight(.medium))
+                            Text(device.name).desktopUIFont(.body, weight: .medium)
                             Text(device.id == workspace.deviceID ? "This Mac" : device.createdAt.formatted(date: .abbreviated, time: .omitted))
-                                .font(.caption).foregroundStyle(.secondary)
+                                .desktopUIFont(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Revoke", role: .destructive) { revoking = device }
@@ -227,7 +229,7 @@ private struct DeviceSettingsView: View {
                 Button("Create pairing code") { Task { await workspace.createInvite() } }
                 if let code = workspace.newInvite {
                     LabeledContent("One-time code") {
-                        Text(code).font(.body.monospaced()).textSelection(.enabled)
+                        Text(code).desktopUIFont(.body, design: .monospaced).textSelection(.enabled)
                     }
                 }
             }
@@ -266,15 +268,15 @@ private struct MemorySettingsView: View {
                 ForEach(workspace.memories) { record in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text(record.key).font(.body.weight(.medium))
+                            Text(record.key).desktopUIFont(.body, weight: .medium)
                             Spacer()
                             Button("Edit") { editor = MemoryEditorEntry(record: record) }
                             Button("Delete", role: .destructive) { deleting = record }
                         }
                         Text(record.value).textSelection(.enabled)
-                        Text(record.source).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(record.source).desktopUIFont(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
                         Text("\(scopeName(record.scope)) · \(record.sensitivity == .localOnly ? "Local only" : "Cloud eligible") · \(record.updatedAt.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.caption)
+                            .desktopUIFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 3)
@@ -378,19 +380,56 @@ struct MemoryEditor: View {
     }
 }
 
-private struct ApplicationSettingsView: View {
-    let updates: DesktopUpdates
+private struct AppearanceSettingsView: View {
     @AppStorage("aides.appearance") private var appearance = DesktopAppearance.system
+    @AppStorage(DesktopTypography.uiKey) private var uiSize = DesktopTypography.defaultUISize
+    @AppStorage(DesktopTypography.codeKey) private var codeSize = DesktopTypography.defaultCodeSize
+    @AppStorage(DesktopTypography.replyKey) private var replySize = DesktopTypography.defaultReplySize
 
     var body: some View {
         Form {
-            Section("Appearance") {
-                Picker("Theme", selection: $appearance) {
-                    ForEach(DesktopAppearance.allCases) { appearance in
-                        Text(appearance.rawValue.capitalized).tag(appearance)
-                    }
+            Picker("Theme", selection: $appearance) {
+                ForEach(DesktopAppearance.allCases) { appearance in
+                    Text(appearance.rawValue.capitalized).tag(appearance)
                 }
             }
+
+            Section("Font sizes") {
+                fontSize("Interface", value: $uiSize, in: DesktopTypography.uiRange)
+                fontSize("Code", value: $codeSize, in: DesktopTypography.codeRange)
+                fontSize("Reply text", value: $replySize, in: DesktopTypography.replyRange)
+
+                Button("Reset font sizes") {
+                    uiSize = DesktopTypography.defaultUISize
+                    codeSize = DesktopTypography.defaultCodeSize
+                    replySize = DesktopTypography.defaultReplySize
+                }
+                .disabled(
+                    uiSize == DesktopTypography.defaultUISize &&
+                    codeSize == DesktopTypography.defaultCodeSize &&
+                    replySize == DesktopTypography.defaultReplySize
+                )
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func fontSize(_ title: String, value: Binding<Int>, in range: ClosedRange<Int>) -> some View {
+        Stepper(value: value, in: range) {
+            LabeledContent(title) {
+                Text("\(value.wrappedValue) pt").monospacedDigit()
+            }
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue("\(value.wrappedValue) points")
+    }
+}
+
+private struct ApplicationSettingsView: View {
+    let updates: DesktopUpdates
+
+    var body: some View {
+        Form {
             Section("Version") {
                 LabeledContent("Aides", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")
                 if updates.isAvailable {
@@ -418,7 +457,7 @@ struct ActivityView: View {
                     metric("Server memory", value: bytes(state.metrics.processMemoryBytes), icon: "memorychip")
                 }
                 Divider()
-                Text("Worker runs").font(.headline)
+                Text("Worker runs").desktopUIFont(.headline)
                 LabeledContent("Active", value: state.tasks.filter { !$0.isFinished }.count.formatted())
                 LabeledContent("Completed", value: state.tasks.filter { $0.status == .completed }.count.formatted())
                 LabeledContent("Failed", value: state.tasks.filter { $0.status == .failed }.count.formatted())
@@ -431,8 +470,8 @@ struct ActivityView: View {
 
     private func metric(_ name: String, value: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Label(name, systemImage: icon).font(.callout).foregroundStyle(.secondary)
-            Text(value).font(.title2.monospacedDigit().weight(.semibold))
+            Label(name, systemImage: icon).desktopUIFont(.callout).foregroundStyle(.secondary)
+            Text(value).desktopUIFont(.title2, weight: .semibold, monospacedDigit: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

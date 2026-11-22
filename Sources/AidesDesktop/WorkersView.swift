@@ -57,14 +57,14 @@ struct WorkersView: View {
                     } label: {
                         HStack(spacing: 16) {
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(task.title).font(.body.weight(.medium)).lineLimit(2)
+                                Text(task.title).desktopUIFont(.body, weight: .medium).lineLimit(2)
                                 Text(task.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption)
+                                    .desktopUIFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
                             TaskStatusView(task: task)
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right").desktopUIFont(.caption).foregroundStyle(.tertiary)
                         }
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
@@ -99,8 +99,8 @@ struct WorkersView: View {
             List(workspace.state.schedules) { schedule in
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(schedule.title).font(.body.weight(.medium))
-                        Text(scheduleDetail(schedule)).font(.caption).foregroundStyle(.secondary)
+                        Text(schedule.title).desktopUIFont(.body, weight: .medium)
+                        Text(scheduleDetail(schedule)).desktopUIFont(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if schedule.paused || schedule.nextRun != nil {
@@ -153,7 +153,7 @@ struct TaskStatusView: View {
                 Text(task.statusLabel)
             }
         }
-        .font(.caption.weight(.medium))
+        .desktopUIFont(.caption, weight: .medium)
         .foregroundStyle(statusColor)
         .accessibilityLabel(task.statusLabel)
     }
@@ -167,7 +167,7 @@ struct WorkerInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Worker").font(.headline)
+                Text("Worker").desktopUIFont(.headline)
                 Spacer()
                 Button(action: close) {
                     Image(systemName: "xmark")
@@ -198,15 +198,15 @@ struct WorkerInspector: View {
                         ApprovalDetails(workspace: workspace, task: task)
                     }
                     if let message = task.error {
-                        Label("Run details", systemImage: "exclamationmark.triangle").font(.headline)
+                        Label("Run details", systemImage: "exclamationmark.triangle").desktopUIFont(.headline)
                         Text(message).textSelection(.enabled)
-                            .font(.callout)
+                            .desktopUIFont(.callout)
                             .foregroundStyle(.secondary)
                     }
                     if let result = task.result, !result.isEmpty {
-                        Text("Result").font(.headline)
+                        Text("Result").desktopUIFont(.headline)
                         Text(result)
-                            .font(.callout)
+                            .desktopUIFont(.callout)
                             .textSelection(.enabled)
                     }
                     if let suggestion = task.toolkitSuggestion {

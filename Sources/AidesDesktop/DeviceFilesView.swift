@@ -30,9 +30,9 @@ struct DeviceFilesView: View {
                 ForEach(relay.manifest.grants) { grant in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(grant.name).font(.body.weight(.medium))
+                            Text(grant.name).desktopUIFont(.body, weight: .medium)
                             Text("\(deviceName(grant.deviceID)) · \(accessLabel(grant))")
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -45,7 +45,7 @@ struct DeviceFilesView: View {
                 }
                 if relay.manifest.grants.isEmpty {
                     Text("Share a specific folder to request file operations from paired Macs.")
-                        .font(.callout)
+                        .desktopUIFont(.callout)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -56,22 +56,22 @@ struct DeviceFilesView: View {
                 ForEach(relay.manifest.jobs.reversed()) { request in
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
-                            Text(request.operation.title).font(.body.weight(.medium))
+                            Text(request.operation.title).desktopUIFont(.body, weight: .medium)
                             Spacer()
-                            Text(request.status.capitalized).font(.caption).foregroundStyle(.secondary)
+                            Text(request.status.capitalized).desktopUIFont(.caption).foregroundStyle(.secondary)
                         }
                         Text("\(deviceName(request.deviceID)) · \(request.grantName) / \(request.path)")
-                            .font(.caption)
+                            .desktopUIFont(.caption)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                         if let destination = request.destination {
-                            Text("To \(destination)").font(.caption).textSelection(.enabled)
+                            Text("To \(destination)").desktopUIFont(.caption).textSelection(.enabled)
                         }
                         if let result = request.result {
                             DisclosureGroup("Result") {
                                 ScrollView {
                                     Text(result)
-                                        .font(.system(.caption, design: .monospaced))
+                                        .desktopUIFont(.caption, design: .monospaced)
                                         .textSelection(.enabled)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -79,13 +79,13 @@ struct DeviceFilesView: View {
                             }
                         }
                         if let error = request.error {
-                            Text(error).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                            Text(error).desktopUIFont(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                     }
                     .padding(.vertical, 3)
                 }
                 Text("Aides must be open on the target Mac to handle these requests.")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -176,17 +176,17 @@ private struct ShareFolderSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             PageHeading("Share a local folder")
-            Text(folder.path).font(.caption.monospaced()).textSelection(.enabled)
+            Text(folder.path).desktopUIFont(.caption, design: .monospaced).textSelection(.enabled)
             Form {
                 TextField("Name on other Macs", text: $name)
                 Toggle("Allow move requests", isOn: $allowMoves)
                 Toggle("Allow text write requests", isOn: $allowWrites)
             }
             Text("Paired devices can list the directory or request text files. File changes require approval on this Mac. The folder’s local path stays on this Mac.")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             if let error = relay.error {
-                Text(error).font(.callout).foregroundStyle(.orange)
+                Text(error).desktopUIFont(.callout).foregroundStyle(.orange)
             }
             HStack {
                 Spacer()
@@ -253,7 +253,7 @@ private struct FileJobSheet: View {
                 }
             }
             if let error = relay.error {
-                Text(error).font(.callout).foregroundStyle(.orange)
+                Text(error).desktopUIFont(.callout).foregroundStyle(.orange)
             }
             HStack {
                 Spacer()

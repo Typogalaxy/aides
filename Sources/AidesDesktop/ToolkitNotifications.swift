@@ -110,11 +110,11 @@ struct ToolkitNotificationsView: View {
                 ))
                 .disabled(!notifications.isAvailable || notifications.isChanging)
                 Text("Receive notices for new reminders and monitored source updates while Aides is running. The notice only identifies the type of update.")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
                 if !notifications.isAvailable {
                     Text("Open the packaged Aides app to configure desktop notifications.")
-                        .font(.caption)
+                        .desktopUIFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 if let error = notifications.error {

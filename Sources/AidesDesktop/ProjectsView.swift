@@ -65,7 +65,7 @@ struct ProjectsView: View {
                 PageHeading(project.name, description: "Created \(project.createdAt.formatted(date: .abbreviated, time: .omitted))")
                 if let directory = project.directory {
                     Label(directory, systemImage: "externaldrive")
-                        .font(.callout.monospaced())
+                        .desktopUIFont(.callout, design: .monospaced)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     HStack {
@@ -81,7 +81,7 @@ struct ProjectsView: View {
                 }
                 Divider()
                 HStack {
-                    Text("Project conversations").font(.headline)
+                    Text("Project conversations").desktopUIFont(.headline)
                     Spacer()
                     Button("New conversation") { conversationProject = project }
                 }
@@ -97,7 +97,7 @@ struct ProjectsView: View {
                             Label(conversation.title, systemImage: conversation.icon)
                             Spacer()
                             if conversation.archivedAt != nil {
-                                Text("Archived").font(.caption).foregroundStyle(.secondary)
+                                Text("Archived").desktopUIFont(.caption).foregroundStyle(.secondary)
                             }
                             Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }
@@ -130,7 +130,7 @@ private struct NewProjectSheet: View {
                 TextField("Server directory (optional)", text: $directory)
             }
             Text("Use an existing absolute path on the server Mac.")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             HStack {
                 Spacer()

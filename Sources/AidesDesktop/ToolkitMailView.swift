@@ -36,7 +36,7 @@ struct ToolkitMailView: View {
                         VStack(alignment: .trailing, spacing: 3) {
                             Text(account.address)
                             Text(account.available ? (account.allowSend ? "Read and send" : "Read only") : "Credential unavailable")
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -74,9 +74,9 @@ struct ToolkitMailView: View {
                             }
                             .buttonStyle(.link)
                             .disabled(busy)
-                            Text(message.from).font(.caption).foregroundStyle(.secondary)
+                            Text(message.from).desktopUIFont(.caption).foregroundStyle(.secondary)
                             if !message.preview.isEmpty {
-                                Text(message.preview).lineLimit(2).font(.callout).foregroundStyle(.secondary)
+                                Text(message.preview).lineLimit(2).desktopUIFont(.callout).foregroundStyle(.secondary)
                             }
                         }
                         .padding(.vertical, 3)
@@ -93,12 +93,12 @@ struct ToolkitMailView: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(draft.subject.isEmpty ? "(No subject)" : draft.subject)
-                                .font(.body.weight(.medium))
+                                .desktopUIFont(.body, weight: .medium)
                             Text("\(draft.accountLabel) · \(draft.to.joined(separator: ", "))")
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                                 .foregroundStyle(.secondary)
                             Text(draft.status.title)
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                                 .foregroundStyle(draft.status == .interrupted ? .orange : .secondary)
                         }
                         Spacer()
@@ -113,12 +113,12 @@ struct ToolkitMailView: View {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(archive.subject.isEmpty ? "(No subject)" : archive.subject)
-                                    .font(.body.weight(.medium))
+                                    .desktopUIFont(.body, weight: .medium)
                                 Text("\(archive.accountLabel) · \(archive.from)")
-                                    .font(.caption)
+                                    .desktopUIFont(.caption)
                                     .foregroundStyle(.secondary)
                                 Text(archive.status.title)
-                                    .font(.caption)
+                                    .desktopUIFont(.caption)
                                     .foregroundStyle(archive.status == .interrupted ? .orange : .secondary)
                             }
                             Spacer()
@@ -230,11 +230,11 @@ private struct ToolkitMailMessageSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if !message.attachments.isEmpty {
                         Divider()
-                        Text("Attachments").font(.headline)
+                        Text("Attachments").desktopUIFont(.headline)
                         ForEach(Array(message.attachments.enumerated()), id: \.offset) { index, attachment in
                             HStack {
                                 LabeledContent(attachment.name, value: attachmentDetails(attachment))
-                                    .font(.caption)
+                                    .desktopUIFont(.caption)
                                 if let account, let key = attachment.previewKey {
                                     Button("Preview text") { Task { await preview(index: index, key: key, account: account) } }
                                         .accessibilityLabel("Preview text from \(attachment.name)")
@@ -245,12 +245,12 @@ private struct ToolkitMailMessageSheet: View {
                         if let attachmentPreview {
                             Divider()
                             HStack {
-                                Text(verbatim: attachmentPreview.name).font(.headline)
+                                Text(verbatim: attachmentPreview.name).desktopUIFont(.headline)
                                 Spacer()
                                 Button("Close text preview") { self.attachmentPreview = nil }
                             }
                             Text(verbatim: attachmentPreview.text)
-                                .font(.system(.caption, design: .monospaced))
+                                .desktopUIFont(.caption, design: .monospaced)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -470,7 +470,7 @@ private struct ToolkitMailReviewSheet: View {
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
             if draft.status == .interrupted {
                 Text("Check the provider’s Sent folder before creating another copy.")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
             HStack {
