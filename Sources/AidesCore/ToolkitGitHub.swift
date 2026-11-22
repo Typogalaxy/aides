@@ -6,13 +6,18 @@ public struct ToolkitGitHubRepository: Codable, Identifiable, Sendable {
     public let name: String
     public let label: String
     public let available: Bool
+    public let allowedWrites: [ToolkitGitHubWriteKind]?
 
-    public init(id: String, owner: String, name: String, label: String, available: Bool) {
+    public init(
+        id: String, owner: String, name: String, label: String, available: Bool,
+        allowedWrites: [ToolkitGitHubWriteKind]? = nil
+    ) {
         self.id = id
         self.owner = owner
         self.name = name
         self.label = label
         self.available = available
+        self.allowedWrites = allowedWrites
     }
 }
 

@@ -123,6 +123,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     registerToolkitCommandRoutes(toolkit, service: service)
     registerToolkitMailRoutes(toolkit, service: service)
     registerToolkitGitHubRoutes(toolkit, service: service)
+    registerToolkitGitHubWriteRoutes(toolkit, service: service)
     registerToolkitFeedRoutes(toolkit, service: service)
     registerToolkitMailWatchRoutes(toolkit, service: service)
     toolkit.post("suggestions", ":id", "accept") { request in

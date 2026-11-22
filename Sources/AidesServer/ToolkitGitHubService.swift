@@ -9,6 +9,7 @@ private struct GitHubRepositoryConfiguration: Decodable, Sendable {
     let name: String
     let label: String?
     let publicRead: Bool?
+    let allowedWrites: [ToolkitGitHubWriteKind]?
 
     var isValid: Bool {
         let slug = "abcdefghijklmnopqrstuvwxyz0123456789_-"
@@ -19,12 +20,16 @@ private struct GitHubRepositoryConfiguration: Decodable, Sendable {
             } &&
             (1...100).contains(name.utf8.count) && name != "." && name != ".." &&
             name.utf8.allSatisfy(repositoryName.utf8.contains) &&
+            (allowedWrites.map { Set($0).count == $0.count } ?? true) &&
             (label.map { (1...100).contains($0.utf8.count) &&
                 !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) } ?? true)
     }
 
-    func repository(available: Bool) -> ToolkitGitHubRepository {
-        ToolkitGitHubRepository(id: id, owner: owner, name: name, label: label ?? "\(owner)/\(name)", available: available)
+    func repository(available: Bool, authenticated: Bool = false) -> ToolkitGitHubRepository {
+        ToolkitGitHubRepository(
+            id: id, owner: owner, name: name, label: label ?? "\(owner)/\(name)", available: available,
+            allowedWrites: authenticated ? allowedWrites : nil
+        )
     }
 
     func token(in storage: ToolkitHostConfiguration) throws -> String? {
@@ -44,7 +49,7 @@ extension AidesService {
         return try gitHubRepositories().map { config in
             do {
                 let token = try config.token(in: storage)
-                return config.repository(available: token != nil || config.publicRead == true)
+                return config.repository(available: token != nil || config.publicRead == true, authenticated: token != nil)
             } catch {
                 return config.repository(available: false)
             }
@@ -80,6 +85,21 @@ extension AidesService {
         return result
     }
 
+    func toolkitGitHubWriteAccess(
+        _ request: ToolkitGitHubWriteRequest
+    ) throws -> (repository: ToolkitGitHubRepository, token: String) {
+        guard let configuration = try gitHubRepositories().first(where: { $0.id == request.repositoryID }) else {
+            throw Abort(.notFound, reason: "GitHub repository is not configured.")
+        }
+        guard configuration.allowedWrites?.contains(request.kind) == true else {
+            throw Abort(.forbidden, reason: "This action is disabled for the configured repository.")
+        }
+        guard let token = try configuration.token(in: githubStorage) else {
+            throw Abort(.serviceUnavailable, reason: "A protected repository token is required for this action.")
+        }
+        return (configuration.repository(available: true, authenticated: true), token)
+    }
+
     private var githubStorage: ToolkitHostConfiguration {
         ToolkitHostConfiguration(directory: host.directory)
     }
@@ -94,7 +114,7 @@ extension AidesService {
         return repositories
     }
 
-    private static func requireGitHubDevice(_ deviceID: UUID, in state: ServerState) throws {
+    static func requireGitHubDevice(_ deviceID: UUID, in state: ServerState) throws {
         guard state.app.devices.contains(where: { $0.id == deviceID }) else {
             throw Abort(.unauthorized, reason: "Pair this device to continue.")
         }

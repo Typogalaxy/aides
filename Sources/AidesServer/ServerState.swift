@@ -9,6 +9,8 @@ struct ServerState: Codable, Sendable {
     var watchedProjects: [UUID: ProjectFileSnapshot]?
     var proposals: [UUID: PendingCodeProposal]?
     var deviceFiles: DeviceFileState?
+    var toolkitGitHubWrites: [UUID: ToolkitGitHubWrite]?
+    var toolkitGitHubRetiredWriteIDs: Set<UUID>?
     var toolkitFeeds: [ToolkitFeed]?
     var toolkitCommandRuns: [UUID: ToolkitCommandRun]?
     var toolkitMailWatches: [ToolkitMailWatch]?
