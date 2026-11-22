@@ -52,9 +52,6 @@ public enum ProjectFiles {
             }
 
             try writeAll(replacementBytes, to: fd)
-            if let original, fchmod(fd, original.permissions) != 0 { throw ProjectFileError.io }
-            guard fsync(fd) == 0 else { throw ProjectFileError.io }
-
             if let original {
                 // Other Aides operations take the same directory lock. External editors
                 // can still race the final compare and rename.
@@ -66,14 +63,33 @@ public enum ProjectFiles {
                 let writable = openat(directory, name, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
                 guard writable >= 0 else { throw ProjectFileError.io }
                 close(writable)
-                guard renameat(directory, temporary, directory, name) == 0 else { throw ProjectFileError.io }
+                try copyMetadata(from: name, in: directory, expected: original, to: fd)
+                guard fsync(fd) == 0,
+                      renameat(directory, temporary, directory, name) == 0 else { throw ProjectFileError.io }
             } else {
+                guard fsync(fd) == 0 else { throw ProjectFileError.io }
                 guard renameatx_np(directory, temporary, directory, name, UInt32(RENAME_EXCL)) == 0 else {
                     if errno == EEXIST { throw ProjectFileError.changed }
                     throw ProjectFileError.io
                 }
             }
             _ = fsync(directory)
+        }
+    }
+
+    private static func copyMetadata(from name: String, in directory: CInt, expected: FileContents, to destination: CInt) throws {
+        let source = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard source >= 0 else { throw ProjectFileError.changed }
+        defer { close(source) }
+        var metadata = stat()
+        guard fstat(source, &metadata) == 0, metadata.st_dev == expected.device, metadata.st_ino == expected.inode,
+              metadata.st_mode & S_IFMT == S_IFREG, metadata.st_nlink == 1 else { throw ProjectFileError.changed }
+        // Replacing a file from another owner can change how named ACL entries are evaluated.
+        guard metadata.st_uid == geteuid(),
+              fchown(destination, uid_t.max, metadata.st_gid) == 0,
+              fchmod(destination, expected.permissions) == 0,
+              fcopyfile(source, destination, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR)) == 0 else {
+            throw ProjectFileError.io
         }
     }
 
@@ -180,7 +196,8 @@ public enum ProjectFiles {
         let path = root.path
         var rootPieces = path.split(separator: "/").map(String.init)
         guard root.isFileURL, path.hasPrefix("/"), let first = rootPieces.first,
-              !rootPieces.contains("."), !rootPieces.contains("..") else {
+              !rootPieces.contains("."), !rootPieces.contains(".."),
+              !rootPieces.contains(where: isProtectedComponent) else {
             throw ProjectFileError.unavailableDirectory
         }
         // Foundation may shorten these Darwin system aliases. Traverse the

@@ -84,6 +84,7 @@ actor ToolkitCommandJobs {
             var isDirectory: ObjCBool = false
             let directory = URL(fileURLWithPath: path, isDirectory: true)
             guard directory.resolvingSymlinksInPath().standardizedFileURL.path == path,
+                  !directory.pathComponents.contains(where: ProjectFiles.isProtectedComponent),
                   FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 throw Abort(.conflict, reason: "The approved project directory has changed.")
             }

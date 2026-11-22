@@ -173,9 +173,11 @@ struct AidesService: Sendable {
         if let path = input.directory, !path.isEmpty {
             guard path.hasPrefix("/") else { throw Abort(.badRequest, reason: "Use an absolute path on the server.") }
             directory = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL
-            let privateData = host.directory.resolvingSymlinksInPath().standardizedFileURL.path
-            guard directory.path != "/", directory.path != privateData,
-                  !privateData.hasPrefix(directory.path + "/"), !directory.path.hasPrefix(privateData + "/") else {
+            let privateData = host.directory.path.precomposedStringWithCanonicalMapping.lowercased()
+            let selected = directory.path.precomposedStringWithCanonicalMapping.lowercased()
+            guard selected != "/", selected != privateData,
+                  !privateData.hasPrefix(selected + "/"), !selected.hasPrefix(privateData + "/"),
+                  !directory.pathComponents.contains(where: ProjectFiles.isProtectedComponent) else {
                 throw Abort(.badRequest, reason: "Choose a working directory separate from Aides data.")
             }
             var isDirectory: ObjCBool = false
