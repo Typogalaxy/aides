@@ -94,10 +94,6 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.applyProposal(id(request), path: decode(ApplyCodeChange.self, request).path))
     }
-    api.post("mail", "suggestions", ":id", "send") { request in
-        _ = try await service.authenticatedDevice(request)
-        return try await json(service.sendSuggestedMail(messageID: id(request)))
-    }
     api.post("schedules", "suggestions", ":id", "accept") { request in
         _ = try await service.authenticatedDevice(request)
         return try await json(service.acceptScheduleSuggestion(messageID: id(request)))

@@ -209,7 +209,7 @@ struct WorkerInspector: View {
                             .font(.callout)
                             .textSelection(.enabled)
                     }
-                    if task.status == .waiting && task.kind != .review && task.kind != .mail {
+                    if task.status == .waiting && task.kind != .review && task.kind != .retiredMail {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
                             .disabled(workspace.isWorking)
                     }

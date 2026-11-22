@@ -14,11 +14,20 @@ struct AidesService: Sendable {
         let store = try StateStore(directory: host.directory, defaultState: ServerState())
         self.store = store
         jobs = JobRunner(host: host, store: store)
-        if await store.snapshot().app.tasks.contains(where: { $0.status == .running }) {
+        if await store.snapshot().app.tasks.contains(where: { work in
+            work.status == .running || (work.kind == .retiredMail && !work.status.isTerminal)
+        }) {
             try await store.update { state in
-                for index in state.app.tasks.indices where state.app.tasks[index].status == .running {
-                    state.app.tasks[index].status = .waiting
-                    state.app.tasks[index].error = "The server stopped during this attempt. Review its outcome before resuming."
+                for index in state.app.tasks.indices {
+                    let work = state.app.tasks[index]
+                    if work.kind == .retiredMail && !work.status.isTerminal {
+                        state.app.tasks[index].status = .cancelled
+                        state.app.tasks[index].updatedAt = .now
+                        state.app.tasks[index].error = "Local mail transport was removed. Check any prior delivery receipts before sending again."
+                    } else if work.status == .running {
+                        state.app.tasks[index].status = .waiting
+                        state.app.tasks[index].error = "The server stopped during this attempt. Review its outcome before resuming."
+                    }
                 }
                 state.revise()
             }

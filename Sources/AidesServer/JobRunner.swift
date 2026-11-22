@@ -55,7 +55,7 @@ actor JobRunner {
     }
 
     private static func isReady(_ work: WorkItem) -> Bool {
-        work.kind != .review && (work.status == .queued || (work.status == .scheduled && (work.scheduledAt ?? .distantFuture) <= .now))
+        work.kind != .review && work.kind != .retiredMail && (work.status == .queued || (work.status == .scheduled && (work.scheduledAt ?? .distantFuture) <= .now))
     }
 
     private func run(_ work: WorkItem) async {
@@ -63,9 +63,7 @@ actor JobRunner {
         do {
             let output: ModelOutput
             var proposal: CodeProposalResult?
-            if work.kind == .mail {
-                output = try await sendMail(work)
-            } else if work.kind == .reminder {
+            if work.kind == .reminder {
                 output = ModelOutput(text: work.instruction, inputTokens: nil, outputTokens: nil)
             } else {
                 let snapshot = await store.snapshot()
@@ -88,9 +86,6 @@ actor JobRunner {
             }
         } catch is CancellationError {
             // The submitting service records cancellation. A shutdown is reconciled on restart.
-        } catch let error as LocalMailError {
-            try? await finish(work, status: .waiting,
-                              error: "Mail was not confirmed by the transport. Check its delivery status before issuing a new request. \(error.localizedDescription)")
         } catch let error as ModelExecutionError {
             let status: WorkStatus = [.rateLimited, .unavailable, .unauthorized].contains(error) ? .waiting : .failed
             try? await finish(work, status: status, error: error.errorDescription)
@@ -150,7 +145,7 @@ actor JobRunner {
             )
             system += "\n" + context.notes
             if work.kind == .conversation && thread.role == .secretary {
-                system += "\n" + SecretaryResponse.instructions(mailAvailable: host.mailFrom != nil)
+                system += "\n" + SecretaryResponse.instructions()
             }
 
             let history = context.recentMessages.compactMap { message -> ModelMessage? in
@@ -166,26 +161,6 @@ actor JobRunner {
             provider: provider, endpoint: endpoint, model: model.model, apiKey: key,
             system: system, messages: messages, maxOutputTokens: codePrompt == nil ? 2_048 : 16_384
         ))
-    }
-
-    private func sendMail(_ work: WorkItem) async throws -> ModelOutput {
-        let snapshot = await store.snapshot()
-        guard let draft = snapshot.mail?[work.id], let from = host.mailFrom, draft.from == from,
-              let path = host.sendmailPath else { throw StorageError("The configured mail transport changed.") }
-        let data = "From: \(from)\nTo: \(draft.to)\nSubject: \(draft.subject)\n\n\(draft.body)"
-        try CloudBoundary.validate(data)
-        try await LocalReview.check("Submit the user-approved email through local mail transport", data: data, in: snapshot)
-        try Task.checkCancellation()
-        let current = await store.snapshot()
-        guard current.app.settings.reviewModelID == snapshot.app.settings.reviewModelID,
-              current.app.tasks.contains(where: { $0.id == work.id && $0.status == .running }) else {
-            throw StorageError("The mail task or review policy changed.")
-        }
-        let message = try PlainTextMail(from: from, to: draft.to, subject: draft.subject, body: draft.body, messageID: work.id)
-        let mail = try LocalMail(executable: URL(fileURLWithPath: path))
-        _ = try await mail.send(message)
-        return ModelOutput(text: "Accepted by the local mail transport for \(draft.to). Delivery is unconfirmed.",
-                           inputTokens: nil, outputTokens: nil)
     }
 
     private func finish(
@@ -204,18 +179,18 @@ actor JobRunner {
             }
             state.app.tasks[index].error = error
             if let output {
-                if work.kind != .reminder && work.kind != .mail {
+                if work.kind != .reminder {
                     state.app.metrics.requests += 1
                     state.app.metrics.inputTokens += output.inputTokens ?? 0
                     state.app.metrics.outputTokens += output.outputTokens ?? 0
                     state.app.metrics.networkBytes += output.networkBytes
                 }
-                if (work.kind == .conversation || work.kind == .reminder || work.kind == .mail),
+                if (work.kind == .conversation || work.kind == .reminder),
                    let i = state.app.threads.firstIndex(where: { $0.id == work.threadID }) {
                     let reply = work.kind == .conversation && state.app.threads[i].role == .secretary
-                        ? SecretaryResponse.parse(output.text, mailFrom: host.mailFrom)
+                        ? SecretaryResponse.parse(output.text)
                         : SecretaryResponse(text: output.text, schedule: nil)
-                    let message = Message(reply.text, role: .assistant, scheduleSuggestion: reply.schedule, mailSuggestion: reply.mail)
+                    let message = Message(reply.text, role: .assistant, scheduleSuggestion: reply.schedule)
                     let origin = state.replyMessages[work.id]
                     if let j = state.app.threads[i].messages.firstIndex(where: { $0.id == origin }) {
                         state.app.threads[i].messages.insert(message, at: j + 1)

@@ -3,29 +3,24 @@
 
 import argparse
 from datetime import datetime, timedelta, timezone
-from email import policy
-from email.parser import BytesParser
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
-import shlex
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import uuid
 
 
 SCHEDULE_REQUEST = "Suggest a reminder for the synthetic follow-up."
 SCHEDULE_REPLY = "Confirm this synthetic reminder when ready."
 SCHEDULE_TITLE = "Synthetic follow-up"
-MAIL_FROM = "server@example.invalid"
-MAIL_RECIPIENTS = ("recipient@example.invalid", "uncertain@example.invalid")
-MAIL_SUBJECT = "确认 café"
-MAIL_BODY = "Thanks for confirming.\nSee you soon."
 SHARED_MARKER = "authorized-material-fixture"
 PRIVATE_MARKER = "private-project-fixture"
 UNSELECTED_MARKER = "unselected-material-fixture"
@@ -100,7 +95,6 @@ class OllamaFixture(BaseHTTPRequestHandler):
         scope = "scoped" if PRIVATE_MARKER in system else "outside"
         answer = f'{request["model"]} / {scope}'
         text = user_text(request)
-        mail_recipient = next((recipient for recipient in MAIL_RECIPIENTS if mail_request(recipient) == text), None)
         if any("Approved task and workspace snapshots:" in item["content"] for item in request["messages"]):
             answer = json.dumps({
                 "summary": "Update the isolated fixture",
@@ -116,16 +110,6 @@ class OllamaFixture(BaseHTTPRequestHandler):
                     "timeZone": "Australia/Melbourne",
                     "repeatRule": "once",
                     "kind": "reminder",
-                },
-            })
-        elif mail_recipient is not None:
-            answer = json.dumps({
-                "text": mail_reply(mail_recipient),
-                "mail": {
-                    "from": "model-proposed@example.invalid",
-                    "to": mail_recipient,
-                    "subject": MAIL_SUBJECT,
-                    "body": MAIL_BODY,
                 },
             })
         # Echo only controlled markers, never the prompt or API credentials.
@@ -147,14 +131,6 @@ def user_text(request):
         (message["content"] for message in reversed(request["messages"]) if message["role"] == "user"),
         "",
     )
-
-
-def mail_request(recipient):
-    return f"Prepare a synthetic email draft for {recipient}."
-
-
-def mail_reply(recipient):
-    return f"Confirm the synthetic email to {recipient}."
 
 
 class IsolatedServer:
@@ -184,26 +160,7 @@ class IsolatedServer:
         fixture.chmod(0o700)
         self.environment["AIDES_CODEX_PATH"] = str(fixture)
         self.environment["AIDES_PORT"] = str(self.port)
-        self.mail_captures = temporary / "mail-captures"
-        self.mail_captures.mkdir()
-        sendmail = temporary / "sendmail-fixture"
-        capture_template = shlex.quote(str(self.mail_captures / "message.XXXXXX"))
-        sendmail.write_text(
-            "#!/bin/sh\n"
-            "set -eu\n"
-            f"receipt=$(/usr/bin/mktemp {capture_template})\n"
-            "printf '%s\\n' \"$@\" > \"$receipt.args\"\n"
-            "/bin/cat > \"$receipt\"\n"
-            f"if [ \"$4\" = '{MAIL_RECIPIENTS[1]}' ]; then exit 75; fi\n",
-            encoding="utf-8",
-        )
-        sendmail.chmod(0o700)
-        self.environment["AIDES_SENDMAIL_PATH"] = str(sendmail)
-        self.environment["AIDES_MAIL_FROM"] = MAIL_FROM
         self.process = None
-
-    def captured_mail(self):
-        return {path for path in self.mail_captures.glob("message.*") if not path.name.endswith(".args")}
 
     def invite(self):
         result = subprocess.run(
@@ -270,43 +227,6 @@ def wait_for_reply(client, thread, expected):
 def add_model(client, name, kind, model, endpoint=""):
     state = client.post("/models", {"name": name, "kind": kind, "model": model, "endpoint": endpoint})
     return find(state["models"], name=name)["id"]
-
-
-def check_single_mail_task(state, recipient, identifier):
-    tasks = [item for item in state["tasks"] if item["kind"] == "mail" and item["title"] == f"Send email to {recipient}"]
-    require([item["id"] for item in tasks] == [identifier], "Mail confirmation created another task")
-
-
-def confirm_fixture_mail(client, anonymous, server, secretary, recipient, status):
-    previous_captures = server.captured_mail()
-    client.post(f"/threads/{secretary}/messages", {"text": mail_request(recipient)})
-    reply = wait_for_reply(client, secretary, mail_reply(recipient))
-    require(reply["mailSuggestion"] == {
-        "to": recipient, "from": MAIL_FROM, "subject": MAIL_SUBJECT, "body": MAIL_BODY,
-    }, "Draft did not preserve the proposed content and configured sender")
-    confirm = f'/mail/suggestions/{reply["id"]}/send'
-    anonymous.post(confirm, {}, status=401)
-    require(server.captured_mail() == previous_captures, "Draft reached the transport without confirmation")
-    state = client.post(confirm, {})
-    task = find(state["tasks"], kind="mail", title=f"Send email to {recipient}")
-    require(task is not None and task["threadID"] == secretary, "Confirmation did not create originating mail work")
-    check_single_mail_task(client.post(confirm, {}), recipient, task["id"])
-    finished = wait_for_task(client, task["id"], status)
-    if status == "waiting":
-        require("Mail was not confirmed" in finished["error"], "Uncertain transport outcome was not surfaced")
-        client.post(f'/tasks/{task["id"]}/resume', {}, status=409)
-    else:
-        require("Delivery is unconfirmed" in finished["result"], "A transport receipt was reported as delivery")
-    captures = server.captured_mail() - previous_captures
-    require(len(captures) == 1, "Mail confirmation did not make exactly one transport attempt")
-    capture = captures.pop()
-    envelope = Path(f"{capture}.args").read_text(encoding="utf-8").splitlines()
-    require(envelope == ["-i", "-f", MAIL_FROM, recipient], "Confirmed envelope differed from the draft")
-    mail = BytesParser(policy=policy.default).parsebytes(capture.read_bytes())
-    require(str(mail["From"]) == MAIL_FROM and str(mail["To"]) == recipient, "Wire addresses differed from the draft")
-    require(str(mail["Subject"]) == MAIL_SUBJECT, "Wire subject differed from the draft")
-    require(mail.get_content().replace("\r\n", "\n") == MAIL_BODY, "Wire body differed from the draft")
-    return confirm, recipient, task["id"]
 
 
 def verify_cloud_memory(client, project_thread, scope, model, private_memory):
@@ -436,12 +356,6 @@ def exercise(server, mock_ollama):
             "Repeating confirmation created another reminder")
     print("PASS explicit and idempotent secretary reminder confirmation")
 
-    mail_confirmations = [
-        confirm_fixture_mail(client, anonymous, server, secretary, recipient, status)
-        for recipient, status in zip(MAIL_RECIPIENTS, ("completed", "waiting"))
-    ]
-    print("PASS explicit mail confirmation and no retry after an uncertain transport result")
-
     cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
     state = client.post("/tasks", {"title": "Cloud fixture request", "modelID": cloud})
     cloud_task = find(state["tasks"], title="Cloud fixture request")
@@ -495,8 +409,15 @@ def exercise(server, mock_ollama):
     print("PASS code proposal isolation, stale-file refusal, and explicit application")
 
     server.stop()
+    legacy_ids = seed_legacy_mail(server.data, cloud_task)
     server.start()
     restored = client.state()
+    queued_mail, completed_mail = (find(restored["tasks"], id=identifier) for identifier in legacy_ids)
+    require(queued_mail["status"] == "cancelled", "Old mail work was left eligible to run")
+    require(completed_mail["status"] == "completed", "Completed mail history was changed")
+    client.post(f'/tasks/{legacy_ids[0]}/resume', {}, status=409)
+    client.post(f'/mail/suggestions/{legacy_ids[0]}/send', {}, status=404)
+    print("PASS retired local mail tasks cannot be submitted or resumed")
     require(find(restored["projects"], id=project["id"]), "Project disappeared after restart")
     require(restored["settings"]["defaultModelID"] == local_b, "Default model did not persist")
     require(find(restored["tasks"], id=review["id"])["status"] == "completed", "Review did not persist")
@@ -509,11 +430,19 @@ def exercise(server, mock_ollama):
     state = client.post(accept_schedule, {})
     require([item["id"] for item in state["schedules"] if item["title"] == SCHEDULE_TITLE] == [accepted["id"]],
             "Reminder confirmation did not persist across restart")
-    for confirmation, recipient, identifier in mail_confirmations:
-        check_single_mail_task(client.post(confirmation, {}), recipient, identifier)
-    require(len(server.captured_mail()) == len(mail_confirmations), "Restart repeated a mail transport attempt")
     guest_client.request("GET", "/state", status=401)
     print("PASS durable state, one-time schedules, and persisted device revocation")
+
+
+def seed_legacy_mail(directory, template):
+    identifiers = [str(uuid.uuid4()).upper() for _ in range(2)]
+    with sqlite3.connect(directory / "aides.sqlite3") as connection:
+        payload, = connection.execute("SELECT payload FROM state WHERE id = 1").fetchone()
+        state = json.loads(payload)
+        for identifier, status in zip(identifiers, ("queued", "completed")):
+            state["app"]["tasks"].append(dict(template, id=identifier, kind="mail", status=status))
+        connection.execute("UPDATE state SET payload = ? WHERE id = 1", (json.dumps(state).encode(),))
+    return identifiers
 
 
 def main():

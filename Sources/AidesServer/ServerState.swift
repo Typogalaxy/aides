@@ -10,8 +10,6 @@ struct ServerState: Codable, Sendable {
     var proposals: [UUID: PendingCodeProposal]?
     var deviceFiles: DeviceFileState?
     var acceptedScheduleSuggestions: [UUID: UUID]?
-    var mail: [UUID: MailSuggestion]?
-    var acceptedMailSuggestions: [UUID: UUID]?
 
     mutating func revise() {
         app.revision += 1

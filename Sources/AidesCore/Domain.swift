@@ -15,18 +15,16 @@ public struct Message: Codable, Identifiable, Sendable {
     public let createdAt: Date
 
     public let scheduleSuggestion: ScheduleSuggestion?
-    public let mailSuggestion: MailSuggestion?
 
     public init(
         _ text: String, role: MessageRole, now: Date = .now,
-        scheduleSuggestion: ScheduleSuggestion? = nil, mailSuggestion: MailSuggestion? = nil
+        scheduleSuggestion: ScheduleSuggestion? = nil
     ) {
         id = UUID()
         self.text = text
         self.role = role
         createdAt = now
         self.scheduleSuggestion = scheduleSuggestion
-        self.mailSuggestion = mailSuggestion
     }
 }
 
@@ -72,7 +70,9 @@ public enum WorkStatus: String, Codable, Sendable {
 }
 
 public enum WorkKind: String, Codable, Sendable {
-    case conversation, analysis, reminder, review, codeProposal, mail
+    case conversation, analysis, reminder, review, codeProposal
+    // Retain the serialized kind for historical records from older builds.
+    case retiredMail = "mail"
 }
 
 public struct WorkItem: Codable, Identifiable, Sendable {

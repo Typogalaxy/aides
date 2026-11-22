@@ -78,9 +78,6 @@ extension AidesService {
             for index in indices {
                 state.app.tasks[index].status = .cancelled
                 state.app.tasks[index].approvedCloud = false
-                if state.app.tasks[index].kind == .mail && running.contains(state.app.tasks[index].id) {
-                    state.app.tasks[index].error = "The mail operation was in progress. Check its status before issuing a new request."
-                }
                 state.app.tasks[index].updatedAt = now
             }
             for cancelledID in indices.map({ state.app.tasks[$0].id }) {
@@ -99,8 +96,8 @@ extension AidesService {
         try await change { state in
             guard let index = state.app.tasks.firstIndex(where: { $0.id == id }) else { throw Abort(.notFound) }
             let task = state.app.tasks[index]
-            if task.kind == .mail {
-                throw Abort(.conflict, reason: "Check whether mail was delivered before creating a fresh request.")
+            if task.kind == .retiredMail {
+                throw Abort(.conflict, reason: "The retired mail transport cannot resume this task.")
             }
             guard task.status == .waiting, task.kind != .review else {
                 throw Abort(.conflict, reason: "Only interrupted work can be resumed.")

@@ -46,12 +46,6 @@ replacements for review. Apply changes one file at a time from the desktop;
 a change to the file since the proposal is a conflict. Use your normal version
 control workflow to review and test changes.
 
-To send a confirmation email, the host needs an existing local sendmail-compatible
-transport and a configured sender. The secretary can prepare a plain-text
-message. Sending requires approving its exact recipient, subject and body.
-The result records whether the transport accepted the message; delivery must
-be checked separately if the result is uncertain.
-
 ## Add another Mac
 
 The HTTP server binds to loopback. Put it behind a private HTTPS connection
@@ -78,6 +72,6 @@ maintainer credentials.
 
 The iPhone client and QR pairing are in the backlog. This build's tool surface
 is currently scoped to project files, reminders, local memory, model tasks and
-structured reviews. General desktop control, mailbox ingestion, other
-third-party connectors and autonomous repository-wide coding are not part of
-the current runtime.
+structured reviews. Outlook, Gmail, and Fastmail are planned as Aides Toolkit
+connectors. General desktop control, other third-party connectors, and
+autonomous repository-wide coding are outside the current runtime.
