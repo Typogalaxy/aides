@@ -1,0 +1,39 @@
+name: macOS CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify packaging scripts
+        run: |
+          bash -n scripts/macos/{aides-service,package.sh,appcast.sh}
+          plutil -lint scripts/macos/Info.plist
+      - name: Run package tests
+        run: swift test
+      - name: Build development DMG, including the updater
+        env:
+          AIDES_ENABLE_SPARKLE: '1'
+        run: scripts/macos/package.sh
+      - name: Upload development DMG
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macOS-development
+          path: dist/*-development.dmg
+          if-no-files-found: error
+          retention-days: 7
