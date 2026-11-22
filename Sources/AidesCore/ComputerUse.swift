@@ -27,7 +27,11 @@ public struct ComputerApp: Codable, Identifiable, Equatable, Sendable {
 }
 
 public enum ComputerActionKind: String, Codable, Sendable {
-    case observe, activate, click, typeText, key, scroll, finish, handoff
+    case observe, activate, click, drag, movePointer, typeText, key, scroll, finish, handoff
+}
+
+public enum ComputerMouseButton: String, Codable, Sendable {
+    case left, right
 }
 
 public struct ComputerAction: Codable, Equatable, Sendable {
@@ -40,11 +44,16 @@ public struct ComputerAction: Codable, Equatable, Sendable {
     public let y: Double?
     public let deltaX: Int?
     public let deltaY: Int?
+    public let button: ComputerMouseButton?
+    public let clickCount: Int?
+    public let endX: Double?
+    public let endY: Double?
 
     public init(
         kind: ComputerActionKind, appID: String? = nil, elementID: String? = nil,
         text: String? = nil, key: String? = nil, x: Double? = nil, y: Double? = nil,
-        deltaX: Int? = nil, deltaY: Int? = nil
+        deltaX: Int? = nil, deltaY: Int? = nil, button: ComputerMouseButton? = nil,
+        clickCount: Int? = nil, endX: Double? = nil, endY: Double? = nil
     ) {
         self.kind = kind
         self.appID = appID
@@ -55,11 +64,15 @@ public struct ComputerAction: Codable, Equatable, Sendable {
         self.y = y
         self.deltaX = deltaX
         self.deltaY = deltaY
+        self.button = button
+        self.clickCount = clickCount
+        self.endX = endX
+        self.endY = endY
     }
 
     public static let keys: Set<String> = [
         "Tab", "Shift+Tab", "Return", "Escape", "Space", "Up", "Down", "Left", "Right",
-        "Backspace", "PageUp", "PageDown", "Home", "End"
+        "Backspace", "PageUp", "PageDown", "Home", "End", "Cmd+A"
     ]
 
     public func isValid(allowedAppIDs: [String], observation: ComputerObservation? = nil) -> Bool {
@@ -77,6 +90,15 @@ public struct ComputerAction: Codable, Equatable, Sendable {
         if hasPosition {
             guard let x, let y, (0...1).contains(x), (0...1).contains(y) else { return false }
         }
+        let hasEnd = endX != nil || endY != nil
+        if hasEnd {
+            guard kind == .drag, let endX, let endY, (0...1).contains(endX), (0...1).contains(endY),
+                  endX != x || endY != y else { return false }
+        }
+        if button != nil || clickCount != nil {
+            guard kind == .click, elementID == nil, hasPosition,
+                  (1...2).contains(clickCount ?? 1), button != .right || (clickCount ?? 1) == 1 else { return false }
+        }
         let hasScroll = deltaX != nil || deltaY != nil
         if hasScroll {
             guard (deltaX ?? 0) != 0 || (deltaY ?? 0) != 0,
@@ -88,6 +110,8 @@ public struct ComputerAction: Codable, Equatable, Sendable {
             return elementID == nil && text == nil && key == nil && !hasPosition && !hasScroll
         case .click:
             return (elementID != nil) != hasPosition && text == nil && key == nil && !hasScroll
+        case .drag, .movePointer:
+            return hasPosition && hasEnd == (kind == .drag) && elementID == nil && text == nil && key == nil && !hasScroll
         case .typeText:
             return text != nil && elementID != nil && key == nil && !hasPosition && !hasScroll
         case .key:
@@ -96,6 +120,14 @@ public struct ComputerAction: Codable, Equatable, Sendable {
             return hasScroll && elementID == nil && text == nil && key == nil && !hasPosition
         case .finish, .handoff:
             return text != nil && elementID == nil && key == nil && !hasPosition && !hasScroll
+        }
+    }
+
+    public var supportsBackground: Bool {
+        switch kind {
+        case .observe, .typeText, .finish, .handoff: true
+        case .click: elementID != nil
+        case .activate, .key, .scroll, .drag, .movePointer: false
         }
     }
 
@@ -132,13 +164,15 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
     public let elements: [ComputerElement]
     public let screenshot: Data?
     public let notice: String?
+    public let isBackground: Bool?
 
-    public init(appID: String, windowTitle: String, elements: [ComputerElement], screenshot: Data? = nil, notice: String? = nil) {
+    public init(appID: String, windowTitle: String, elements: [ComputerElement], screenshot: Data? = nil, notice: String? = nil, isBackground: Bool? = nil) {
         self.appID = appID
         self.windowTitle = windowTitle
         self.elements = elements
         self.screenshot = screenshot
         self.notice = notice
+        self.isBackground = isBackground
     }
 
     public static let maximumImageBytes = 384 * 1_024
@@ -218,6 +252,7 @@ public struct ComputerRun: Codable, Identifiable, Sendable {
     public var pendingReview: ComputerReviewContext?
     public var pendingCommandID: UUID?
     public var allowRoutineActions: Bool?
+    public var allowBackground: Bool?
 
     public init(
         id: UUID, deviceID: UUID, requestedByDeviceID: UUID, appIDs: [String],
@@ -244,13 +279,18 @@ public struct ComputerCommand: Codable, Identifiable, Sendable {
     public let appIDs: [String]
     public let includeImages: Bool
     public let action: ComputerAction
+    public let allowBackground: Bool
 
-    public init(id: UUID, runID: UUID, appIDs: [String], includeImages: Bool, action: ComputerAction) {
+    public init(
+        id: UUID, runID: UUID, appIDs: [String], includeImages: Bool,
+        action: ComputerAction, allowBackground: Bool = false
+    ) {
         self.id = id
         self.runID = runID
         self.appIDs = appIDs
         self.includeImages = includeImages
         self.action = action
+        self.allowBackground = allowBackground
     }
 }
 
