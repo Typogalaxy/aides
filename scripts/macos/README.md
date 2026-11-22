@@ -29,6 +29,29 @@ Mac's environment and are stored in its per-user launch agent. Use the locally
 installed executables you trust. Login credentials remain under each official
 tool's control.
 
+## Connect another Mac privately
+
+Aides listens on `127.0.0.1:8317` by default. On the server Mac itself, connect
+using `http://127.0.0.1:8317`. For a second Mac, keep that listener on loopback
+and put an HTTPS reverse proxy on a private network. Both Macs must be on that
+network, and the second Mac needs its own Aides pairing code.
+
+If you already use Tailscale, enable its HTTPS certificates and use
+[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve) on
+the server Mac:
+
+```sh
+tailscale serve --bg 8317
+tailscale serve status
+```
+
+Enter the printed `https://…ts.net` address in the desktop connection settings
+and pair with a fresh code from the server. Limit access with your tailnet
+rules. Keep Aides private with Serve and use `tailscale serve --https=443 off`
+to turn off this HTTPS proxy when done. A reverse proxy you already manage
+also works if it exposes trusted HTTPS only on your private network and
+forwards requests to the same loopback listener.
+
 ## Signed releases
 
 Configure a protected GitHub Actions environment named `macos-release`. It
