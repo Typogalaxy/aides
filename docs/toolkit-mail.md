@@ -78,3 +78,19 @@ and the message only belongs to Inbox, Aides leaves the message in place.
 Aides saves the approval before calling the provider. A disrupted operation
 leaves a receipt marked interrupted. Check the provider before making another
 archive request.
+
+## Preview a text attachment
+
+Open a message and choose **Preview text** next to an eligible attachment.
+Aides verifies the selected attachment against the current message and shows
+up to 16 KiB of UTF-8 plain text, CSV, tab-separated values, or Markdown as
+literal text. The preview stays in Toolkit. Attachments that have a separately
+addressable file or blob, a supported media type, and a known size can be
+previewed. Other attachments show metadata.
+
+The provider request targets one attachment on Gmail or Microsoft Graph.
+Fastmail uses the exact attachment endpoint advertised in its authenticated
+JMAP session. Aides recognizes the official Fastmail download origins and
+requires the documented JMAP template. Other endpoints leave attachments at
+metadata only. [Fastmail JMAP endpoint](https://jmap.io/crash-course/) ·
+[JMAP attachment download protocol](https://www.rfc-editor.org/rfc/rfc8620.html#section-6.2)

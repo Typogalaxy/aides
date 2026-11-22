@@ -60,6 +60,8 @@ def exercise(server):
     anonymous.request("GET", accounts, status=401)
     anonymous.post(drafts, {}, status=401)
     anonymous.request("GET", archives, status=401)
+    preview_route = "/toolkit/mail/accounts/work/messages/fixture/attachments/preview"
+    anonymous.post(preview_route, {"index": 0, "previewKey": "0" * 64}, status=401)
     owner = anonymous.post("/pair", {"code": invite, "name": "Smoke mail owner"})
     client = Client(server.port, owner["token"])
 
@@ -73,6 +75,9 @@ def exercise(server):
     require(not next(item for item in records if item["id"] == "work")["available"],
             "A group-readable token was accepted")
     token.chmod(0o600)
+    client.post(preview_route, {"index": -1, "previewKey": "0" * 64}, status=400)
+    client.post(preview_route, {"index": 0, "previewKey": "invalid"}, status=400)
+    client.post(preview_route.replace("/work/", "/unknown/"), {"index": 0, "previewKey": "0" * 64}, status=404)
     archive_id = str(uuid.uuid4()).upper()
     archive_request = {"id": archive_id, "accountID": "work", "messageID": "fixture"}
     client.post(archives, archive_request, status=403)
