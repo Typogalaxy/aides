@@ -6,6 +6,7 @@ struct SettingsView: View {
     let updates: DesktopUpdates
 
     @Binding var pane: SettingsPane
+    @Binding var toolkitPane: ToolkitPane
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,7 +25,7 @@ struct SettingsView: View {
             case .models: ModelSettingsView(workspace: workspace)
             case .memory: MemorySettingsView(workspace: workspace)
             case .devices: DeviceSettingsView(workspace: workspace)
-            case .toolkit: DeviceFilesView(workspace: workspace)
+            case .toolkit: ToolkitSettingsView(workspace: workspace, pane: $toolkitPane)
             case .application: ApplicationSettingsView(updates: updates)
             }
         }

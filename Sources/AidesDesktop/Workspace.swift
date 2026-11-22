@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class Workspace {
     let fileRelay = DeviceFileRelay()
+    let toolkitNotifications = ToolkitDesktopNotifications()
     var state = AppState()
     var memories: [MemoryRecord] = []
     var address = ServerEndpoint.localAddress
@@ -105,6 +106,7 @@ final class Workspace {
         let service = ServerClient(endpoint: endpoint, credential: credential)
         let initial: AppState = try await service.get(["state"])
         eventTask?.cancel()
+        toolkitNotifications.stop()
         state = initial
         memories = []
         client = service
@@ -119,6 +121,7 @@ final class Workspace {
 
     func disconnect() {
         fileRelay.stop()
+        toolkitNotifications.stop()
         eventTask?.cancel()
         eventTask = nil
         client = nil
@@ -175,7 +178,9 @@ final class Workspace {
     }
 
     private func apply(_ newState: AppState) {
-        if newState.revision >= state.revision { state = newState }
+        guard newState.revision >= state.revision else { return }
+        toolkitNotifications.receive(newState, after: state)
+        state = newState
     }
 
     private func perform(_ operation: () async throws -> Void) async {
@@ -210,10 +215,13 @@ final class Workspace {
         return created
     }
 
-    func send(_ message: String, in conversationID: UUID) async -> Bool {
+    func send(_ message: String, in conversationID: UUID, toolkitResourceID: UUID? = nil) async -> Bool {
         var sent = false
         await perform {
-            try await update(["threads", conversationID.uuidString, "messages"], MessageRequest(text: message))
+            try await update(
+                ["threads", conversationID.uuidString, "messages"],
+                MessageRequest(text: message, toolkitResourceID: toolkitResourceID)
+            )
             sent = true
         }
         return sent
@@ -313,6 +321,34 @@ final class Workspace {
         }
     }
 
+    func confirmToolkit(suggestedBy messageID: UUID) async -> ToolkitInvocation? {
+        var invocation: ToolkitInvocation?
+        await perform {
+            invocation = try await toolkitPost(["suggestions", messageID.uuidString, "accept"], body: EmptyRequest())
+            await fileRelay.refresh()
+        }
+        return invocation
+    }
+
+    func toolkitGet<Response: Decodable & Sendable>(_ path: [String]) async throws -> Response {
+        try await authenticated().get(["toolkit"] + path)
+    }
+
+    func toolkitDelete<Response: Decodable & Sendable>(_ path: [String]) async throws -> Response {
+        try await authenticated().delete(["toolkit"] + path)
+    }
+
+    func toolkitDeviceName(_ id: UUID) -> String {
+        if id == deviceID { return "This Mac" }
+        return state.devices.first { $0.id == id }?.name ?? "Paired Mac"
+    }
+
+    func toolkitPost<Body: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ path: [String], body: Body
+    ) async throws -> Response {
+        try await authenticated().post(["toolkit"] + path, body: body)
+    }
+
     func setSchedulePaused(_ id: UUID, paused: Bool) async {
         await perform { try await update(["schedules", id.uuidString, "pause"], PauseRequest(paused: paused)) }
     }
@@ -402,7 +438,10 @@ private struct PairRequest: Encodable { let code: String; let name: String }
 private struct InviteResponse: Decodable & Sendable { let code: String }
 private struct ThreadRequest: Encodable { let title: String; let role: String; let projectID: UUID? }
 private struct ArchiveRequest: Encodable { let report: String }
-private struct MessageRequest: Encodable { let text: String }
+private struct MessageRequest: Encodable {
+    let text: String
+    let toolkitResourceID: UUID?
+}
 private struct ApplyCodeProposalRequest: Encodable { let path: String }
 private struct ProjectWatchRequest: Encodable { let enabled: Bool }
 private struct ProjectRequest: Encodable { let name: String; let directory: String? }
@@ -425,6 +464,15 @@ struct TaskRequest: Encodable {
     let modelID: UUID?
     let scheduledAt: Date?
     let sharedMemoryIDs: [UUID]?
+    var toolkitResourceID: UUID? = nil
+    var toolkitInvocationID: UUID? = nil
+    var toolkitLocalSelection: ToolkitWorkerSelection? = nil
+}
+
+struct ToolkitWorkerSelection: Encodable {
+    let action: String
+    let query: String?
+    let path: String?
 }
 
 struct ReviewRequest: Encodable {

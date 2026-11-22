@@ -20,6 +20,10 @@
     <string>15.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Show events and save confirmed event changes in calendars you select on this Mac.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Search for contact details you request on this Mac.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Connect to your Aides server on your local network.</string>
     <key>NSAppTransportSecurity</key>

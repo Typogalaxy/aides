@@ -14,6 +14,7 @@ struct ChatView: View {
     @ViewState private var showsPreference = false
     @ViewState private var showsMemory = false
     @ViewState private var sourceMessage: Message?
+    @ViewState private var toolkitResourceID: UUID?
 
     private var memoryScope: String {
         if let projectID = conversation.projectID { return "project:\(projectID.uuidString.lowercased())" }
@@ -114,6 +115,7 @@ struct ChatView: View {
                 composer
             }
         }
+        .onChange(of: conversation.id) { _, _ in toolkitResourceID = nil }
         .sheet(isPresented: $showsTask) {
             NewTaskSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {
                 showWorker($0)
@@ -160,6 +162,13 @@ struct ChatView: View {
                                     )
                                     .padding(.leading, 39)
                                 }
+                                if let suggestion = message.toolkitSuggestion {
+                                    ToolkitSuggestionView(
+                                        workspace: workspace, requestID: message.id, suggestion: suggestion,
+                                        unavailable: conversation.archivedAt != nil
+                                    )
+                                    .padding(.leading, 39)
+                                }
                             }
                             .contextMenu {
                                     if message.isUser {
@@ -197,20 +206,34 @@ struct ChatView: View {
                     .accessibilityLabel("Message")
                     .padding(11)
                     .background(.quaternary.opacity(0.29), in: .rect(cornerRadius: 10))
-                Button {
-                    let original = draft
-                    let message = original.trimmingCharacters(in: .whitespacesAndNewlines)
-                    Task {
-                        if await workspace.send(message, in: conversation.id), draft == original {
-                            draft = ""
-                        }
+                HStack {
+                    if !workspace.fileRelay.manifest.grants.isEmpty {
+                        ToolkitFolderPicker(
+                            workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this message"
+                        )
+                        .labelsHidden()
+                        .fixedSize()
+                        .disabled(workspace.isWorking)
                     }
-                } label: {
-                    Label("Send", systemImage: "arrow.up")
+                    Spacer()
+                    Button {
+                        let original = draft
+                        let message = original.trimmed
+                        let resource = toolkitResourceID
+                        let conversationID = conversation.id
+                        Task {
+                            if await workspace.send(message, in: conversationID, toolkitResourceID: resource) {
+                                if draft == original { draft = "" }
+                                if toolkitResourceID == resource { toolkitResourceID = nil }
+                            }
+                        }
+                    } label: {
+                        Label("Send", systemImage: "arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(workspace.isWorking || draft.trimmed.isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(workspace.isWorking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .frame(maxWidth: 760)
             .padding(15)
@@ -299,6 +322,70 @@ private struct ScheduleSuggestionView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .padding(12)
+        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
+    }
+}
+
+struct ToolkitSuggestionView: View {
+    let workspace: Workspace
+    let requestID: UUID
+    let suggestion: ToolkitSuggestion
+    let unavailable: Bool
+
+    @ViewState private var submitted: ToolkitInvocation?
+
+    private var grant: DeviceFileGrant? {
+        workspace.fileRelay.manifest.grants.first { $0.id == suggestion.resourceID }
+    }
+
+    private var job: DeviceFileJob? {
+        workspace.fileRelay.manifest.jobs.first { $0.id == (submitted?.id ?? requestID) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(suggestion.tool.descriptor.title, systemImage: "hammer")
+                .font(.callout.weight(.medium))
+            if let grant {
+                LabeledContent("Folder", value: "\(grant.name) · \(workspace.toolkitDeviceName(grant.deviceID))")
+            }
+            LabeledContent("Path", value: suggestion.path.isEmpty ? "." : suggestion.path)
+            if let destination = suggestion.destination {
+                LabeledContent("Destination", value: destination)
+            }
+            if let status = job?.status ?? submitted?.status.rawValue {
+                LabeledContent("Status", value: status.capitalized)
+                if let result = job?.result ?? submitted?.result {
+                    DisclosureGroup("Result") {
+                        ScrollView {
+                            Text(result)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 200)
+                    }
+                }
+                if let error = job?.error ?? submitted?.error {
+                    Text(error).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            } else if !unavailable, grant != nil {
+                if suggestion.tool.descriptor.approval == .targetDevice {
+                    Text("The target Mac will ask before moving the file.")
+                        .foregroundStyle(.secondary)
+                }
+                Button("Confirm file action") {
+                    Task { submitted = await workspace.confirmToolkit(suggestedBy: requestID) }
+                }
+                .disabled(workspace.isWorking)
+            } else {
+                Text(unavailable ? "This proposal can no longer be confirmed." : "Folder access is unavailable.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+        .textSelection(.enabled)
         .padding(12)
         .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
     }

@@ -209,6 +209,13 @@ struct WorkerInspector: View {
                             .font(.callout)
                             .textSelection(.enabled)
                     }
+                    if let suggestion = task.toolkitSuggestion {
+                        ToolkitSuggestionView(
+                            workspace: workspace, requestID: task.id, suggestion: suggestion,
+                            unavailable: task.status != .completed
+                        )
+                        .id(task.id)
+                    }
                     if task.status == .waiting && task.kind != .review && task.kind != .retiredMail {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
                             .disabled(workspace.isWorking)
@@ -239,9 +246,73 @@ struct NewTaskSheet: View {
     @ViewState private var delayed = false
     @ViewState private var scheduledAt = Date.now.addingTimeInterval(3600)
     @ViewState private var sharedMemoryIDs: Set<UUID> = []
+    @ViewState private var toolkitResourceID: UUID?
+    @ViewState private var toolkitInvocationID: UUID?
+    @ViewState private var localActions: [ToolkitLocalAction] = []
+    @ViewState private var localActionID: String?
+    @ViewState private var localProjectID: UUID?
+    @ViewState private var localQuery = ""
+    @ViewState private var localPath = ""
 
-    private var usesCloud: Bool {
-        workspace.state.models.first { $0.id == modelID }?.kind.isLocal == false
+    private var model: ModelProfile? {
+        workspace.state.models.first { $0.id == (modelID ?? workspace.state.settings.defaultModelID) }
+    }
+
+    private var usesCloud: Bool { model?.kind.isLocal == false }
+
+    private var localReceipts: [DeviceFileJob] {
+        let grants = Set(workspace.fileRelay.manifest.grants.map(\.id))
+        return workspace.fileRelay.manifest.jobs.reversed().filter {
+            $0.status == "completed" && ($0.operation == .read || $0.operation == .list) && $0.result != nil &&
+                grants.contains($0.grantID) && (toolkitResourceID == nil || $0.grantID == toolkitResourceID)
+        }
+    }
+
+    private var localAction: ToolkitLocalAction? { localActions.first { $0.id == localActionID } }
+
+    private var taskProjectID: UUID? {
+        projectID ?? workspace.state.threads.first(where: { $0.id == threadID })?.projectID ??
+            (localAction == nil ? nil : localProjectID)
+    }
+
+    private var localInputIsValid: Bool {
+        guard model?.kind.isLocal == true, let localAction else { return true }
+        if localAction.requiresProject || localAction.id == "projects.list" {
+            guard let taskProjectID, let project = workspace.state.projects.first(where: { $0.id == taskProjectID }),
+                  !localAction.requiresProject || project.directory != nil else { return false }
+        }
+        return localAction.id != "projects.files.read" || !localPath.trimmed.isEmpty
+    }
+
+    private var localInputPicker: some View {
+        Group {
+            Picker("Aides data for local model", selection: $localActionID) {
+                Text("No Aides data lookup").tag(String?.none)
+                ForEach(localActions) { action in Text(action.title).tag(Optional(action.id)) }
+            }
+            .help("Run a scoped lookup when the local Worker starts and include the result in its input.")
+            if let localAction {
+                if projectID == nil && workspace.state.threads.first(where: { $0.id == threadID })?.projectID == nil {
+                    Picker("Project scope", selection: $localProjectID) {
+                        Text("Choose a project").tag(UUID?.none)
+                        ForEach(workspace.state.projects) { project in
+                            Text(project.name).tag(Optional(project.id))
+                        }
+                    }
+                }
+                if localAction.acceptsQuery {
+                    TextField("Search terms (optional)", text: $localQuery)
+                }
+                if localAction.acceptsPath {
+                    TextField("Relative path", text: $localPath)
+                }
+            }
+        }
+        .onChange(of: localActionID) { _, value in
+            localPath = ""
+            localQuery = ""
+            if value != nil { toolkitInvocationID = nil }
+        }
     }
 
     private var shareableMemories: [MemoryRecord] {
@@ -262,6 +333,26 @@ struct NewTaskSheet: View {
                 TextField("Instructions", text: $instruction, axis: .vertical)
                     .lineLimit(3...6)
                 ModelPicker(models: workspace.state.models, selection: $modelID)
+                if model?.kind.isLocal == true {
+                    if !workspace.fileRelay.manifest.grants.isEmpty {
+                        ToolkitFolderPicker(
+                            workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this run"
+                        )
+                    }
+                    if !localReceipts.isEmpty {
+                        Picker("File result for local model", selection: $toolkitInvocationID) {
+                            Text("No file result").tag(UUID?.none)
+                            ForEach(localReceipts) { receipt in
+                                let path = receipt.path.isEmpty ? "." : receipt.path
+                                Text("\(receipt.grantName) / \(path) · \(receipt.updatedAt.formatted(date: .omitted, time: .shortened))")
+                                    .tag(Optional(receipt.id))
+                            }
+                        }
+                        .disabled(localAction != nil)
+                        .help("Include the selected completed file result in the local model's input for this run.")
+                    }
+                    if !localActions.isEmpty { localInputPicker }
+                }
                 if usesCloud && !shareableMemories.isEmpty {
                     Section("Memory to share (up to four)") {
                         ForEach(shareableMemories) { memory in
@@ -289,9 +380,20 @@ struct NewTaskSheet: View {
                     Task {
                         let request = TaskRequest(
                             title: title.trimmed, instruction: instruction.trimmed.isEmpty ? nil : instruction.trimmed,
-                            threadID: threadID, projectID: projectID, modelID: modelID,
+                            threadID: threadID, projectID: model?.kind.isLocal == true ? taskProjectID : projectID,
+                            modelID: modelID,
                             scheduledAt: delayed ? scheduledAt : nil,
-                            sharedMemoryIDs: usesCloud ? shareableMemories.filter { sharedMemoryIDs.contains($0.id) }.map(\.id) : nil
+                            sharedMemoryIDs: usesCloud ? shareableMemories.filter { sharedMemoryIDs.contains($0.id) }.map(\.id) : nil,
+                            toolkitResourceID: model?.kind.isLocal == true ? toolkitResourceID : nil,
+                            toolkitInvocationID: model?.kind.isLocal == true && localAction == nil
+                                ? localReceipts.first { $0.id == toolkitInvocationID }?.id : nil,
+                            toolkitLocalSelection: model?.kind.isLocal == true ? localAction.map { action in
+                                ToolkitWorkerSelection(
+                                    action: action.id,
+                                    query: action.acceptsQuery && !localQuery.trimmed.isEmpty ? localQuery.trimmed : nil,
+                                    path: action.acceptsPath && !localPath.trimmed.isEmpty ? localPath.trimmed : nil
+                                )
+                            } : nil
                         )
                         if let id = await workspace.createTask(request) {
                             dismiss()
@@ -301,14 +403,30 @@ struct NewTaskSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmed.isEmpty || workspace.isWorking)
+                .disabled(title.trimmed.isEmpty || workspace.isWorking || !localInputIsValid)
             }
         }
         .padding(22)
         .frame(width: 490)
+        .task {
+            if let catalog: ToolkitLocalCatalog = try? await workspace.toolkitGet(["local", "actions"]) {
+                localActions = catalog.actions
+            }
+        }
         .task(id: modelID) {
             sharedMemoryIDs = []
+            if model?.kind.isLocal != true {
+                toolkitResourceID = nil
+                toolkitInvocationID = nil
+                localActionID = nil
+                localProjectID = nil
+            }
             if usesCloud { await workspace.refreshMemories() }
+        }
+        .onChange(of: localReceipts.map(\.id)) { _, ids in
+            if let toolkitInvocationID, !ids.contains(toolkitInvocationID) {
+                self.toolkitInvocationID = nil
+            }
         }
     }
 }

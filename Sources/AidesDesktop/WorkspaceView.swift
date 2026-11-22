@@ -27,6 +27,7 @@ struct WorkspaceView: View {
 
     @ViewState private var page = WorkspacePage.conversations
     @ViewState private var settingsPane = SettingsPane.models
+    @ViewState private var toolkitPane = ToolkitPane.files
     @ViewState private var conversationID: UUID?
     @ViewState private var projectID: UUID?
     @ViewState private var inspectorTaskID: UUID?
@@ -152,8 +153,9 @@ struct WorkspaceView: View {
             Spacer()
 
             if workspace.fileRelay.pendingMove != nil {
-                Button("Review file move") {
+                Button("Review file change") {
                     page = .settings
+                    toolkitPane = .files
                     settingsPane = .toolkit
                 }
                 .buttonStyle(.bordered)
@@ -201,7 +203,7 @@ struct WorkspaceView: View {
         case .activity:
             ActivityView(state: workspace.state)
         case .settings:
-            SettingsView(workspace: workspace, updates: updates, pane: $settingsPane)
+            SettingsView(workspace: workspace, updates: updates, pane: $settingsPane, toolkitPane: $toolkitPane)
         }
     }
 
