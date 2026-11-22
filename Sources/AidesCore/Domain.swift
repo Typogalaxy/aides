@@ -14,11 +14,14 @@ public struct Message: Codable, Identifiable, Sendable {
     public let role: MessageRole
     public let createdAt: Date
 
-    public init(_ text: String, role: MessageRole, now: Date = .now) {
+    public let scheduleSuggestion: ScheduleSuggestion?
+
+    public init(_ text: String, role: MessageRole, now: Date = .now, scheduleSuggestion: ScheduleSuggestion? = nil) {
         id = UUID()
         self.text = text
         self.role = role
         createdAt = now
+        self.scheduleSuggestion = scheduleSuggestion
     }
 }
 

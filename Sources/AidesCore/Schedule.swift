@@ -47,3 +47,18 @@ public struct WorkSchedule: Codable, Identifiable, Sendable {
         return calendar.date(byAdding: .day, value: offsetForToday + days, to: firstRun)
     }
 }
+
+public struct ScheduleSuggestion: Codable, Sendable {
+    public let title: String
+    public let firstRun: Date
+    public let timeZone: String
+    public let repeatRule: RepeatRule
+    public let kind: WorkKind
+
+    public func isValid(after now: Date) -> Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            title.count <= 120 && firstRun > now &&
+            TimeZone(identifier: timeZone) != nil &&
+            (kind == .reminder || kind == .analysis)
+    }
+}

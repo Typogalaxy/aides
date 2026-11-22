@@ -135,6 +135,10 @@ actor JobRunner {
                 records: snapshot.memory, preference: snapshot.app.settings.preference
             )
             system += "\n" + context.notes
+            if work.kind == .conversation && thread.role == .secretary {
+                system += "\n" + SecretaryResponse.schedulingInstructions
+            }
+
             let history = context.recentMessages.compactMap { message -> ModelMessage? in
                 switch message.role {
                 case .user: ModelMessage(role: .user, text: message.text)
@@ -174,7 +178,10 @@ actor JobRunner {
                 }
                 if (work.kind == .conversation || work.kind == .reminder),
                    let i = state.app.threads.firstIndex(where: { $0.id == work.threadID }) {
-                    let message = Message(output.text, role: .assistant)
+                    let reply = work.kind == .conversation
+                        ? SecretaryResponse.parse(output.text)
+                        : SecretaryResponse(text: output.text, schedule: nil)
+                    let message = Message(reply.text, role: .assistant, scheduleSuggestion: reply.schedule)
                     let origin = state.replyMessages[work.id]
                     if let j = state.app.threads[i].messages.firstIndex(where: { $0.id == origin }) {
                         state.app.threads[i].messages.insert(message, at: j + 1)

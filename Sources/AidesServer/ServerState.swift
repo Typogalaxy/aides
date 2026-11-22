@@ -9,6 +9,7 @@ struct ServerState: Codable, Sendable {
     var watchedProjects: [UUID: ProjectFileSnapshot]?
     var proposals: [UUID: PendingCodeProposal]?
     var deviceFiles: DeviceFileState?
+    var acceptedScheduleSuggestions: [UUID: UUID]?
 
     mutating func revise() {
         app.revision += 1
