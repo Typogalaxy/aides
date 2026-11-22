@@ -56,5 +56,6 @@ struct NewMemory: Decodable {
     let value: String
     let scope: String
     let sensitivity: MemorySensitivity
+    let sourceMessageID: UUID?
 }
 struct ProjectWatch: Decodable { let enabled: Bool }

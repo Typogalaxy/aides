@@ -249,13 +249,22 @@ struct AidesService: Sendable {
             let scopes = state.app.projects.map { "project:\($0.id.uuidString.lowercased())" } +
                 state.app.threads.filter { $0.role == .area }.map { "area:\($0.id.uuidString.lowercased())" }
             guard scope == "global" || scopes.contains(scope) else { throw Abort(.badRequest, reason: "Unknown memory scope.") }
+            let source: String
+            if let id = input.sourceMessageID {
+                guard state.app.threads.contains(where: { thread in
+                    thread.messages.contains(where: { $0.id == id && $0.role == .user })
+                }) else { throw Abort(.notFound, reason: "The original user message is unavailable.") }
+                source = "User message \(id.uuidString)"
+            } else {
+                source = "User entry"
+            }
             if let index = state.memory.firstIndex(where: { $0.scope == scope && $0.key.caseInsensitiveCompare(key) == .orderedSame }) {
                 state.memory[index].value = value
                 state.memory[index].sensitivity = input.sensitivity
-                state.memory[index].source = "User entry"
+                state.memory[index].source = source
                 state.memory[index].updatedAt = .now
             } else {
-                state.memory.append(MemoryRecord(key: key, value: value, scope: scope, source: "User entry", sensitivity: input.sensitivity))
+                state.memory.append(MemoryRecord(key: key, value: value, scope: scope, source: source, sensitivity: input.sensitivity))
             }
             state.revise()
             return state.memory
