@@ -5,7 +5,8 @@ import PackageDescription
 let enableSparkle = ProcessInfo.processInfo.environment["AIDES_ENABLE_SPARKLE"] == "1"
 
 var dependencies: [Package.Dependency] = [
-    .package(url: "https://github.com/vapor/vapor.git", exact: "4.115.1")
+    .package(url: "https://github.com/vapor/vapor.git", exact: "4.115.1"),
+    .package(url: "https://github.com/swift-server/async-http-client.git", exact: "1.37.0")
 ]
 
 var desktopDependencies: [Target.Dependency] = ["AidesCore"]
@@ -27,7 +28,11 @@ let package = Package(
         .target(name: "AidesExecution", dependencies: ["AidesCore"]),
         .executableTarget(
             name: "AidesServer",
-            dependencies: ["AidesCore", "AidesExecution", .product(name: "Vapor", package: "vapor")]
+            dependencies: [
+                "AidesCore", "AidesExecution",
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "AsyncHTTPClient", package: "async-http-client")
+            ]
         ),
         .executableTarget(name: "AidesDesktop", dependencies: desktopDependencies),
         .testTarget(name: "AidesCoreTests", dependencies: ["AidesCore"]),

@@ -9,6 +9,7 @@ struct AidesService: Sendable {
     let store: StateStore<ServerState>
     let jobs: JobRunner
     let commands: ToolkitCommandJobs
+    let feeds: ToolkitFeedMonitor
 
     init(host: Host) async throws {
         self.host = host
@@ -16,6 +17,7 @@ struct AidesService: Sendable {
         self.store = store
         jobs = JobRunner(host: host, store: store)
         commands = ToolkitCommandJobs(store: store)
+        feeds = ToolkitFeedMonitor(store: store)
         let snapshot = await store.snapshot()
         let recoveringTasks = snapshot.app.tasks.contains { work in
             work.status == .running || (work.kind == .retiredMail && !work.status.isTerminal)
@@ -51,7 +53,11 @@ struct AidesService: Sendable {
         }
     }
 
-    func start() async { await jobs.start() }
+    func start() async {
+        async let polling: Void = feeds.start()
+        await jobs.start()
+        await polling
+    }
 
     func authenticatedDevice(_ request: Request) async throws -> UUID {
         guard let token = request.headers.bearerAuthorization?.token, token.utf8.count == 64,

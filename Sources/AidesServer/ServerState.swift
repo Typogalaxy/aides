@@ -9,6 +9,7 @@ struct ServerState: Codable, Sendable {
     var watchedProjects: [UUID: ProjectFileSnapshot]?
     var proposals: [UUID: PendingCodeProposal]?
     var deviceFiles: DeviceFileState?
+    var toolkitFeeds: [ToolkitFeed]?
     var toolkitCommandRuns: [UUID: ToolkitCommandRun]?
     var toolkitMailDrafts: [UUID: ToolkitMailDraft]?
     var toolkitMailRetiredDraftIDs: Set<UUID>?
