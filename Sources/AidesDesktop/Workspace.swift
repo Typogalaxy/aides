@@ -333,6 +333,15 @@ final class Workspace {
         }
     }
 
+    func saveReplyPreference(_ preference: String) async -> Bool {
+        var saved = false
+        await perform {
+            try await update(["settings"], ReplyPreferenceRequest(preference: preference))
+            saved = true
+        }
+        return saved
+    }
+
     func addModel(_ request: ModelRequest) async -> Bool {
         var saved = false
         await perform {
@@ -393,6 +402,8 @@ private struct ProjectWatchRequest: Encodable { let enabled: Bool }
 private struct ProjectRequest: Encodable { let name: String; let directory: String? }
 private struct PauseRequest: Encodable { let paused: Bool }
 private struct ApprovalRequest: Encodable { let approved: Bool }
+private struct ReplyPreferenceRequest: Encodable { let preference: String }
+
 private struct SettingsRequest: Encodable {
     let defaultModelID: UUID?
     let preference: String
@@ -443,6 +454,7 @@ struct MemoryRequest: Encodable {
     let value: String
     let scope: String
     let sensitivity: String
+    let sourceMessageID: UUID?
 }
 
 enum LocalService {

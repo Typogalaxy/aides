@@ -271,6 +271,7 @@ private struct MemorySettingsView: View {
                             Button("Delete", role: .destructive) { deleting = record }
                         }
                         Text(record.value).textSelection(.enabled)
+                        Text(record.source).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
                         Text("\(scopeName(record.scope)) · \(record.sensitivity == .localOnly ? "Local only" : "Cloud eligible") · \(record.updatedAt.formatted(date: .abbreviated, time: .omitted))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -311,9 +312,11 @@ private struct MemoryEditorEntry: Identifiable {
     let record: MemoryRecord?
 }
 
-private struct MemoryEditor: View {
+struct MemoryEditor: View {
     let workspace: Workspace
-    let existing: MemoryRecord?
+    var existing: MemoryRecord? = nil
+    var sourceMessage: Message? = nil
+    var suggestedScope = "global"
 
     @Environment(\.dismiss) private var dismiss
     @ViewState private var key = ""
@@ -348,7 +351,8 @@ private struct MemoryEditor: View {
                 Button("Save memory") {
                     Task {
                         if await workspace.saveMemory(MemoryRequest(
-                            key: key.trimmed, value: value.trimmed, scope: scope, sensitivity: sensitivity
+                            key: key.trimmed, value: value.trimmed, scope: scope, sensitivity: sensitivity,
+                            sourceMessageID: sourceMessage?.id
                         )) { dismiss() }
                     }
                 }
@@ -365,6 +369,9 @@ private struct MemoryEditor: View {
                 value = existing.value
                 scope = existing.scope
                 sensitivity = existing.sensitivity.rawValue
+            } else {
+                value = sourceMessage?.text ?? ""
+                scope = suggestedScope
             }
         }
     }

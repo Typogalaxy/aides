@@ -11,6 +11,15 @@ struct ChatView: View {
     @ViewState private var proposalProject: Project?
     @ViewState private var showsReview = false
     @ViewState private var showsArchive = false
+    @ViewState private var showsPreference = false
+    @ViewState private var showsMemory = false
+    @ViewState private var sourceMessage: Message?
+
+    private var memoryScope: String {
+        if let projectID = conversation.projectID { return "project:\(projectID.uuidString.lowercased())" }
+        if conversation.role == .area { return "area:\(conversation.id.uuidString.lowercased())" }
+        return "global"
+    }
 
     private var tasks: [WorkItem] {
         workspace.state.tasks.filter { $0.threadID == conversation.id }
@@ -47,6 +56,18 @@ struct ChatView: View {
                         .accessibilityLabel("Archive conversation")
                     }
                 }
+                Menu {
+                    Button("Remember a note…") {
+                        sourceMessage = nil
+                        showsMemory = true
+                    }
+                    Button("Reply preferences…") { showsPreference = true }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuIndicator(.hidden)
+                .help("Conversation options")
+                .accessibilityLabel("Conversation options")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
@@ -109,6 +130,12 @@ struct ChatView: View {
         .sheet(isPresented: $showsArchive) {
             ArchiveConversationSheet(workspace: workspace, conversation: conversation)
         }
+        .sheet(isPresented: $showsMemory) {
+            MemoryEditor(workspace: workspace, sourceMessage: sourceMessage, suggestedScope: memoryScope)
+        }
+        .sheet(isPresented: $showsPreference) {
+            ReplyPreferenceSheet(workspace: workspace)
+        }
     }
 
     private var timeline: some View {
@@ -125,6 +152,14 @@ struct ChatView: View {
                     LazyVStack(alignment: .leading, spacing: 22) {
                         ForEach(conversation.messages) { message in
                             ChatMessageView(message: message, conversationTitle: conversation.title)
+                                .contextMenu {
+                                    if message.isUser {
+                                        Button("Remember this message…") {
+                                            sourceMessage = message
+                                            showsMemory = true
+                                        }
+                                    }
+                                }
                         }
                         Color.clear.frame(height: 1).id("conversation-end")
                     }
@@ -279,6 +314,40 @@ private struct ArchiveConversationSheet: View {
         }
         .padding(22)
         .frame(width: 455)
+    }
+}
+
+private struct ReplyPreferenceSheet: View {
+    let workspace: Workspace
+
+    @Environment(\.dismiss) private var dismiss
+    @ViewState private var preference = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            PageHeading("Reply preferences", description: "Apply to future replies in every conversation.")
+            TextField("Global reply preference", text: $preference, axis: .vertical)
+                .lineLimit(3...8)
+                .textFieldStyle(.roundedBorder)
+            if let error = workspace.error {
+                Text(error).font(.callout).foregroundStyle(.orange)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    Task {
+                        if await workspace.saveReplyPreference(preference.trimmed) { dismiss() }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(workspace.isWorking || preference == workspace.state.settings.preference)
+            }
+        }
+        .padding(22)
+        .frame(width: 440)
+        .onAppear { preference = workspace.state.settings.preference }
     }
 }
 
