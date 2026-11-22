@@ -160,16 +160,35 @@ struct ServerClient: Sendable {
 }
 
 enum CredentialStore {
-    private static func item(for endpoint: ServerEndpoint) -> [String: Any] {
+    private static let store = LocalKeychain(service: "org.typogalaxy.aides.device")
+
+    static func read(for endpoint: ServerEndpoint) throws -> AccountCredential? {
+        guard let data = try store.read(account: endpoint.url.absoluteString) else { return nil }
+        return try JSONDecoder().decode(AccountCredential.self, from: data)
+    }
+
+    static func save(_ credential: AccountCredential, for endpoint: ServerEndpoint) throws {
+        try store.save(JSONEncoder().encode(credential), account: endpoint.url.absoluteString)
+    }
+
+    static func delete(for endpoint: ServerEndpoint) throws {
+        try store.delete(account: endpoint.url.absoluteString)
+    }
+}
+
+struct LocalKeychain {
+    let service: String
+
+    private func item(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "org.typogalaxy.aides.device",
-            kSecAttrAccount as String: endpoint.url.absoluteString,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
         ]
     }
 
-    static func read(for endpoint: ServerEndpoint) throws -> AccountCredential? {
-        var query = item(for: endpoint)
+    func read(account: String) throws -> Data? {
+        var query = item(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -178,12 +197,12 @@ enum CredentialStore {
         guard status == errSecSuccess, let data = result as? Data else {
             throw ServerError.keychain(status)
         }
-        return try JSONDecoder().decode(AccountCredential.self, from: data)
+        return data
     }
 
-    static func save(_ credential: AccountCredential, for endpoint: ServerEndpoint) throws {
-        let query = item(for: endpoint)
-        let update = [kSecValueData as String: try JSONEncoder().encode(credential)]
+    func save(_ data: Data, account: String) throws {
+        let query = item(account: account)
+        let update = [kSecValueData as String: data]
         var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
         if status == errSecItemNotFound {
             status = SecItemAdd(query.merging(update) { _, new in new } as CFDictionary, nil)
@@ -191,8 +210,8 @@ enum CredentialStore {
         guard status == errSecSuccess else { throw ServerError.keychain(status) }
     }
 
-    static func delete(for endpoint: ServerEndpoint) throws {
-        let status = SecItemDelete(item(for: endpoint) as CFDictionary)
+    func delete(account: String) throws {
+        let status = SecItemDelete(item(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw ServerError.keychain(status)
         }

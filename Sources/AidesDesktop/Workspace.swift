@@ -5,6 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class Workspace {
+    let fileRelay = DeviceFileRelay()
     var state = AppState()
     var memories: [MemoryRecord] = []
     var address = ServerEndpoint.localAddress
@@ -113,9 +114,11 @@ final class Workspace {
         isConnected = true
         connectionError = nil
         startEvents(using: service)
+        fileRelay.start(service)
     }
 
     func disconnect() {
+        fileRelay.stop()
         eventTask?.cancel()
         eventTask = nil
         client = nil
