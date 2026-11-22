@@ -33,6 +33,7 @@ struct WorkspaceView: View {
     @ViewState private var inspectorTaskID: UUID?
     @ViewState private var drafts: [UUID: String] = [:]
     @ViewState private var showsNewConversation = false
+    @ViewState private var showsConversationSidebar = true
 
     var body: some View {
         Group {
@@ -68,8 +69,18 @@ struct WorkspaceView: View {
 
     private var connectedView: some View {
         HStack(spacing: 0) {
-            sidebar
+            navigationRail
             Divider()
+            if page == .conversations && showsConversationSidebar {
+                ConversationSidebar(
+                    conversations: workspace.state.threads,
+                    projects: workspace.state.projects,
+                    selection: $conversationID,
+                    newConversation: { showsNewConversation = true }
+                )
+                .frame(width: 244)
+                Divider()
+            }
             VStack(spacing: 0) {
                 if let message = workspace.connectionError {
                     HStack(spacing: 8) {
@@ -112,97 +123,98 @@ struct WorkspaceView: View {
         workspace.state.tasks.first { $0.id == inspectorTaskID }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .desktopUIFont(.title3, weight: .medium)
-                    .foregroundStyle(.white)
-                    .frame(width: 31, height: 31)
-                    .background(Color.aidesAccent, in: .rect(cornerRadius: 9))
-                Text("Aides")
-                    .desktopUIFont(.title2, weight: .semibold)
+    private var navigationRail: some View {
+        VStack(spacing: 8) {
+            railButton(
+                showsConversationSidebar ? "Hide conversation sidebar" : "Show conversation sidebar",
+                icon: "sidebar.left"
+            ) {
+                showsConversationSidebar.toggle()
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 15)
+            .disabled(page != .conversations)
+            .keyboardShortcut("s", modifiers: [.command, .control])
 
-            ForEach(WorkspacePage.allCases) { destination in
-                Button {
-                    page = destination
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: destination.icon)
-                            .frame(width: 16)
-                            .foregroundStyle(page == destination ? Color.aidesAccent : Color.secondary)
-                        Text(destination.title)
-                            .desktopUIFont(.callout, weight: page == destination ? .semibold : .regular)
-                        Spacer()
-                        if destination == .workers {
-                            let approvals = workspace.state.tasks.count { $0.status == .waitingApproval }
-                            if approvals > 0 {
-                                Text(approvals.formatted())
-                                    .desktopUIFont(.caption, monospacedDigit: true)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(page == destination ? Color.aidesAccent.opacity(0.14) : .clear,
-                                in: .rect(cornerRadius: 7))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(page == destination ? .isSelected : [])
+            Divider().padding(.horizontal, 5)
+            ForEach(WorkspacePage.allCases.filter { $0 != .settings }) { destination in
+                destinationButton(destination)
             }
-
-            Spacer()
+            Spacer(minLength: 8)
 
             if workspace.fileRelay.pendingMove != nil {
-                Button("Review file change") {
+                railButton("Review file change", icon: "doc.badge.ellipsis") {
                     page = .settings
                     toolkitPane = .files
                     settingsPane = .toolkit
                 }
-                .buttonStyle(.bordered)
             }
-
             if workspace.computerRelay.hasLocalReview {
-                Button("Review desktop task", action: showComputerUse)
-                .buttonStyle(.borderedProminent)
+                railButton("Review desktop task", icon: "exclamationmark.triangle", highlighted: true,
+                           action: showComputerUse)
             }
-
             if let run = workspace.computerRelay.activeLocalRun {
-                Button("Pause desktop task") {
+                railButton("Pause desktop task", icon: "pause.circle") {
                     Task { await workspace.computerRelay.control(run, .pause) }
                 }
-                .buttonStyle(.bordered)
             }
-
             if updates.hasUpdate {
-                Button(action: updates.check) {
-                    Label("Update available", systemImage: "arrow.down.circle")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                }
-                .buttonStyle(.bordered)
-                .tint(.aidesAccent)
+                railButton("Update available", icon: "arrow.down.circle", highlighted: true, action: updates.check)
             }
 
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(workspace.connectionError == nil ? Color.green : Color.orange)
-                    .frame(width: 7, height: 7)
-                Text(workspace.connectionError == nil ? "Server connected" : "Reconnecting")
-                    .desktopUIFont(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(9)
+            destinationButton(.settings)
+
+            let isConnected = workspace.connectionError == nil
+            let status = isConnected ? "Server connected" : "Reconnecting"
+            Circle()
+                .fill(isConnected ? Color.green : Color.orange)
+                .frame(width: 7, height: 7)
+                .frame(width: 34, height: 26)
+                .help(status)
+                .accessibilityLabel(status)
         }
-        .padding(10)
-        .frame(width: 175)
-        .background(.bar)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 12)
+        .frame(width: 52)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func destinationButton(_ destination: WorkspacePage) -> some View {
+        let approvalCount = destination == .workers
+            ? workspace.state.tasks.count { $0.status == .waitingApproval }
+            : 0
+        let title = approvalCount > 0 ? "\(destination.title), \(approvalCount) awaiting approval" : destination.title
+        return railButton(title, icon: destination.icon, highlighted: page == destination) {
+            page = destination
+        }
+        .overlay(alignment: .topTrailing) {
+            if approvalCount > 0 {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 6, height: 6)
+                    .padding(4)
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityAddTraits(page == destination ? .isSelected : [])
+    }
+
+    private func railButton(
+        _ title: String,
+        icon: String,
+        highlighted: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .desktopUIFont(.title3, weight: .medium)
+                .foregroundStyle(highlighted ? Color.aidesAccent : Color.secondary)
+                .frame(width: 36, height: 35)
+                .background(highlighted ? Color.aidesAccent.opacity(0.15) : .clear, in: .rect(cornerRadius: 9))
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
     }
 
     @ViewBuilder
@@ -228,30 +240,25 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     private var conversationsView: some View {
-        HStack(spacing: 0) {
-            conversationList
-                .frame(width: 210)
-            Divider()
-            if let current = workspace.state.threads.first(where: { $0.id == conversationID }) {
-                ChatView(
-                    workspace: workspace,
-                    conversation: current,
-                    draft: Binding(
-                        get: { drafts[current.id, default: ""] },
-                        set: { drafts[current.id] = $0 }
-                    ),
-                    showWorker: { inspectorTaskID = $0 },
-                    showComputerUse: showComputerUse
-                )
-                .id(current.id)
-            } else {
-                ContentUnavailableView {
-                    Label("No conversation selected", systemImage: "bubble.left")
-                } actions: {
-                    Button("New conversation") { showsNewConversation = true }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if let current = workspace.state.threads.first(where: { $0.id == conversationID }) {
+            ChatView(
+                workspace: workspace,
+                conversation: current,
+                draft: Binding(
+                    get: { drafts[current.id, default: ""] },
+                    set: { drafts[current.id] = $0 }
+                ),
+                showWorker: { inspectorTaskID = $0 },
+                showComputerUse: showComputerUse
+            )
+            .id(current.id)
+        } else {
+            ContentUnavailableView {
+                Label("No conversation selected", systemImage: "bubble.left")
+            } actions: {
+                Button("New conversation") { showsNewConversation = true }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -259,48 +266,6 @@ struct WorkspaceView: View {
         page = .settings
         toolkitPane = .computer
         settingsPane = .toolkit
-    }
-
-    private var conversationList: some View {
-        let active = workspace.state.threads.filter { $0.archivedAt == nil }
-        let archived = workspace.state.threads.filter { $0.archivedAt != nil }
-        return VStack(spacing: 0) {
-            HStack {
-                Text("Conversations").desktopUIFont(.headline)
-                Spacer()
-                Button {
-                    showsNewConversation = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .buttonStyle(.borderless)
-                .help("New conversation")
-                .accessibilityLabel("New conversation")
-            }
-            .padding(14)
-            Divider()
-            List(selection: $conversationID) {
-                if !active.isEmpty {
-                    Section("Active") {
-                        ForEach(active) { row($0) }
-                    }
-                }
-                if !archived.isEmpty {
-                    Section("Archived") {
-                        ForEach(archived) { row($0) }
-                    }
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-        }
-        .background(.quaternary.opacity(0.22))
-    }
-
-    private func row(_ conversation: Conversation) -> some View {
-        Label(conversation.title, systemImage: conversation.icon)
-            .lineLimit(1)
-            .tag(conversation.id)
     }
 }
 
