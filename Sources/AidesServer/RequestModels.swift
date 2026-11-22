@@ -9,6 +9,7 @@ struct NewThread: Decodable { let title: String; let role: ConversationRole; let
 struct NewMessage: Decodable {
     let text: String
     let computerObservation: ComputerObservation?
+    let attachments: [ChatFileAttachment]?
     let toolkitResourceID: UUID?
     let toolkitMailAccountID: String?
 }

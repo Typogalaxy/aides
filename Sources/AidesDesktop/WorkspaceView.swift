@@ -32,6 +32,7 @@ struct WorkspaceView: View {
     @ViewState private var projectID: UUID?
     @ViewState private var inspectorTaskID: UUID?
     @ViewState private var drafts: [UUID: String] = [:]
+    @ViewState private var draftAttachments: [UUID: [ChatFileAttachment]] = [:]
     @ViewState private var showsNewConversation = false
     @ViewState private var showsConversationSidebar = true
 
@@ -247,6 +248,10 @@ struct WorkspaceView: View {
                 draft: Binding(
                     get: { drafts[current.id, default: ""] },
                     set: { drafts[current.id] = $0 }
+                ),
+                draftAttachments: Binding(
+                    get: { draftAttachments[current.id, default: []] },
+                    set: { draftAttachments[current.id] = $0 }
                 ),
                 showWorker: { inspectorTaskID = $0 },
                 showComputerUse: showComputerUse

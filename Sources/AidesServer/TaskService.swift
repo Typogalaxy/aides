@@ -115,6 +115,7 @@ extension AidesService {
                 state.app.tasks[index].status = .cancelled
                 state.app.tasks[index].approvedCloud = false
                 state.app.tasks[index].updatedAt = now
+                state.discardChatAttachments(for: state.app.tasks[index].id)
             }
             for cancelledID in indices.map({ state.app.tasks[$0].id }) {
                 Self.reconcileReview(of: cancelledID, in: &state)

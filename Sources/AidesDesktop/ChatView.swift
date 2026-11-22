@@ -5,6 +5,7 @@ struct ChatView: View {
     let workspace: Workspace
     let conversation: Conversation
     @Binding var draft: String
+    @Binding var draftAttachments: [ChatFileAttachment]
     let showWorker: (UUID) -> Void
     let showComputerUse: () -> Void
 
@@ -12,6 +13,8 @@ struct ChatView: View {
 
     private let conversationWidth: CGFloat = 736
 
+    @ViewState private var showsFilesMenu = false
+    @ViewState private var isPickingFiles = false
     @ViewState private var showsTask = false
     @ViewState private var showsComputerUse = false
     @ViewState private var showsAppshot = false
@@ -274,6 +277,15 @@ struct ChatView: View {
                 if let error = workspace.appshots.error {
                     Text(error).desktopUIFont(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if !draftAttachments.isEmpty {
+                    draftAttachmentList
+                    if workspace.appshots.draft != nil {
+                        Text("Remove the window attachment or the selected files before sending.")
+                            .desktopUIFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
                 let prompt = "Message \(conversation.title)…"
                 ChatComposerInput(text: $draft, placeholder: prompt, fontSize: typography.contentSize, send: sendDraft)
                     .overlay(alignment: .topLeading) {
@@ -288,13 +300,14 @@ struct ChatView: View {
                     .padding(.vertical, 4)
                     .padding(.horizontal, 3)
                 HStack {
-                    if workspace.appshots.draft == nil && !workspace.fileRelay.manifest.grants.isEmpty {
+                    attachmentMenu
+                    if workspace.appshots.draft == nil, !workspace.fileRelay.manifest.grants.isEmpty {
                         ToolkitFolderPicker(
                             workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this message"
                         )
                         .labelsHidden()
                         .fixedSize()
-                        .disabled(workspace.isWorking)
+                        .disabled(workspace.isWorking || !draftAttachments.isEmpty)
                         .onChange(of: toolkitResourceID) { _, folder in
                             if folder != nil { toolkitMailAccountID = nil }
                         }
@@ -304,7 +317,7 @@ struct ChatView: View {
                         ToolkitMailAccountPicker(
                             workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft…"
                         )
-                        .disabled(workspace.isWorking)
+                        .disabled(workspace.isWorking || !draftAttachments.isEmpty)
                         .onChange(of: toolkitMailAccountID) { _, account in
                             if account != nil { toolkitResourceID = nil }
                         }
@@ -315,7 +328,7 @@ struct ChatView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(workspace.isWorking || draft.trimmed.isEmpty)
+                    .disabled(!canSendDraft)
                 }
             }
             .padding(12)
@@ -332,11 +345,90 @@ struct ChatView: View {
             .frame(maxWidth: .infinity)
         }
     }
+
+    private var attachmentMenu: some View {
+        Button { showsFilesMenu.toggle() } label: {
+            Image(systemName: "plus")
+                .desktopUIFont(.headline, weight: .medium)
+                .frame(width: 30, height: 28)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help("Add files and folders")
+        .accessibilityLabel("Add files and folders")
+        .disabled(workspace.isWorking || isPickingFiles)
+        .popover(isPresented: $showsFilesMenu, arrowEdge: .bottom) {
+            Button {
+                showsFilesMenu = false
+                Task { await pickFiles() }
+            } label: {
+                Label("Files and Folders", systemImage: "paperclip")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderless)
+            .padding(10)
+            .frame(minWidth: 180)
+            .disabled(!canPickFiles)
+            .help(canPickFiles ? "Choose local files or folders" :
+                "Select a local Ollama model and clear any window, Toolkit folder, or mail selection.")
+        }
+    }
+
+    private var canPickFiles: Bool {
+        workspace.appshots.draft == nil && toolkitResourceID == nil && toolkitMailAccountID == nil &&
+            workspace.state.models.contains { $0.id == workspace.state.settings.defaultModelID && $0.kind == .ollama }
+    }
+
+    private var draftAttachmentList: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(draftAttachments) { attachment in
+                    HStack(spacing: 6) {
+                        Label(attachment.name, systemImage: attachment.kind == .folder ? "folder" : "doc")
+                            .lineLimit(1)
+                        Button {
+                            draftAttachments.removeAll { $0.id == attachment.id }
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove \(attachment.name)")
+                        .accessibilityLabel("Remove \(attachment.name)")
+                        .disabled(workspace.isWorking || isPickingFiles)
+                    }
+                    .desktopUIFont(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(.quaternary, in: .rect(cornerRadius: 6))
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func pickFiles() async {
+        guard canPickFiles, !isPickingFiles else { return }
+        isPickingFiles = true
+        defer { isPickingFiles = false }
+        do {
+            if let selected = try await ChatFilePicker.select(keeping: draftAttachments) {
+                draftAttachments = selected
+            }
+        } catch {
+            workspace.error = error.localizedDescription
+        }
+    }
+
+    private var canSendDraft: Bool {
+        !workspace.isWorking && !isPickingFiles && !draft.trimmed.isEmpty &&
+            (draftAttachments.isEmpty || canPickFiles)
+    }
+
     private func sendDraft() {
+        guard canSendDraft else { return }
         let original = draft
         let message = original.trimmed
-        guard !workspace.isWorking, !message.isEmpty else { return }
-
+        let attachments = draftAttachments
         let appshot = workspace.appshots.draft
         let mailAccount = appshot == nil ? toolkitMailAccountID : nil
         let resource = appshot == nil && mailAccount == nil ? toolkitResourceID : nil
@@ -344,16 +436,16 @@ struct ChatView: View {
         Task {
             if await workspace.send(
                 message, in: conversationID, toolkitResourceID: resource, toolkitMailAccountID: mailAccount,
-                computerObservation: appshot?.observation
+                computerObservation: appshot?.observation, attachments: attachments
             ) {
                 if let appshot { workspace.appshots.remove(appshot.id) }
                 if draft == original { draft = "" }
+                if draftAttachments.map(\.id) == attachments.map(\.id) { draftAttachments = [] }
                 if toolkitResourceID == resource { toolkitResourceID = nil }
                 if toolkitMailAccountID == mailAccount { toolkitMailAccountID = nil }
             }
         }
     }
-
 }
 
 private struct ChatMessageView: View {
@@ -369,19 +461,28 @@ private struct ChatMessageView: View {
             if message.isUser {
                 HStack(alignment: .top, spacing: 0) {
                     Spacer(minLength: 38)
-                    Text(message.text)
-                        .font(.system(size: typography.contentSize))
-                        .lineSpacing(5)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 11 + 1 / displayScale)
-                        .foregroundStyle(colorScheme == .dark ? Color(red: 0.86, green: 0.96, blue: 0.89) : Color(red: 0.09, green: 0.22, blue: 0.15))
-                        .background(
-                            colorScheme == .dark ? Color(red: 0.13, green: 0.25, blue: 0.20) : Color(red: 0.85, green: 0.95, blue: 0.89),
-                            in: .rect(cornerRadius: 20)
-                        )
-                        .frame(maxWidth: 514, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(message.text)
+                            .font(.system(size: typography.contentSize))
+                            .lineSpacing(5)
+                            .textSelection(.enabled)
+                        if let attachments = message.attachments {
+                            ForEach(attachments) { attachment in
+                                Label(attachment.name, systemImage: attachment.kind == .folder ? "folder" : "doc")
+                                    .desktopUIFont(.caption)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11 + 1 / displayScale)
+                    .foregroundStyle(colorScheme == .dark ? Color(red: 0.86, green: 0.96, blue: 0.89) : Color(red: 0.09, green: 0.22, blue: 0.15))
+                    .background(
+                        colorScheme == .dark ? Color(red: 0.13, green: 0.25, blue: 0.20) : Color(red: 0.85, green: 0.95, blue: 0.89),
+                        in: .rect(cornerRadius: 20)
+                    )
+                    .frame(maxWidth: 514, alignment: .trailing)
                 }
             } else if message.role == .assistant {
                 ChatMarkdownView(source: message.text, bodySize: typography.contentSize, codeSize: typography.codeSize)
