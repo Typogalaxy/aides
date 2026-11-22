@@ -129,6 +129,28 @@ extension AidesService {
         return result
     }
 
+    func previewToolkitMailAttachment(
+        accountID: String, messageID: String, input: ToolkitMailAttachmentPreviewRequest, deviceID: UUID
+    ) async throws -> ToolkitMailAttachmentPreview {
+        try Self.requireMailDevice(deviceID, in: await store.snapshot())
+        guard input.isValid else { throw Abort(.badRequest, reason: "Select an attachment from the opened message.") }
+        let access = try mailAccess(id: accountID)
+        let result: ToolkitMailAttachmentPreview
+        do {
+            result = try await ToolkitMailConnector().previewAttachment(
+                account: access.account, token: access.token, messageID: messageID, selection: input
+            )
+        } catch ToolkitMailAttachmentPreviewError.changed {
+            throw Abort(.conflict, reason: "The attachment changed. Open the message again.")
+        } catch ToolkitMailAttachmentPreviewError.unsupported {
+            throw Abort(.unprocessableEntity, reason: "This preview requires a UTF-8 text attachment up to 16 KiB.")
+        } catch {
+            throw Self.mailFailure(error)
+        }
+        try Self.requireMailDevice(deviceID, in: await store.snapshot())
+        return result
+    }
+
     func toolkitMailDrafts(deviceID: UUID) async throws -> [ToolkitMailDraft] {
         let state = await store.snapshot()
         try Self.requireMailDevice(deviceID, in: state)
@@ -329,6 +351,15 @@ func registerToolkitMailRoutes(_ group: RoutesBuilder, service: AidesService) {
         guard let account = request.parameters.get("accountID"),
               let message = request.parameters.get("messageID") else { throw Abort(.badRequest) }
         return try await json(service.readToolkitMail(accountID: account, messageID: message, deviceID: device))
+    }
+    mail.post("accounts", ":accountID", "messages", ":messageID", "attachments", "preview") { request in
+        let device = try await service.authenticatedDevice(request)
+        guard let account = request.parameters.get("accountID"),
+              let message = request.parameters.get("messageID") else { throw Abort(.badRequest) }
+        return try await json(service.previewToolkitMailAttachment(
+            accountID: account, messageID: message,
+            input: decode(ToolkitMailAttachmentPreviewRequest.self, request), deviceID: device
+        ))
     }
     mail.get("drafts") { request in
         let device = try await service.authenticatedDevice(request)

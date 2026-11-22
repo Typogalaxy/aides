@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ToolkitRemoteError: Error, Equatable, Sendable {
-    case unauthorized, unavailable, unexpectedResponse, wrongAccount, rejected
+    case unauthorized, unavailable, unexpectedResponse, wrongAccount, rejected, outputLimit
 }
 
 enum ToolkitRemoteTransport {
@@ -36,7 +36,9 @@ enum ToolkitRemoteTransport {
         return formatter.date(from: value)
     }
 
-    static func exchange(_ request: URLRequest, allowedHosts: Set<String>) async throws -> Data {
+    static func exchange(
+        _ request: URLRequest, allowedHosts: Set<String>, maximumBytes: Int = maximumResponseBytes
+    ) async throws -> Data {
         guard let url = request.url, let host = url.host?.lowercased(), allowedHosts.contains(host),
               url.scheme == "https", url.port == nil || url.port == 443,
               url.user == nil, url.password == nil, url.fragment == nil else {
@@ -56,15 +58,15 @@ enum ToolkitRemoteTransport {
                 default: throw ToolkitRemoteError.rejected
                 }
             }
-            guard http.expectedContentLength <= maximumResponseBytes else {
+            guard http.expectedContentLength <= maximumBytes else {
                 bytes.task.cancel()
-                throw ToolkitRemoteError.unexpectedResponse
+                throw ToolkitRemoteError.outputLimit
             }
             var data = Data()
             for try await byte in bytes {
-                guard data.count < maximumResponseBytes else {
+                guard data.count < maximumBytes else {
                     bytes.task.cancel()
-                    throw ToolkitRemoteError.unexpectedResponse
+                    throw ToolkitRemoteError.outputLimit
                 }
                 data.append(byte)
             }

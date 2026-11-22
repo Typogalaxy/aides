@@ -3,6 +3,7 @@ import Foundation
 
 struct FastmailSession: Decodable, Sendable {
     let apiUrl: URL
+    let downloadUrl: String?
     let username: String
     let primaryAccounts: [String: String]
 }
@@ -55,7 +56,7 @@ extension ToolkitMailConnector {
             parameters: [
                 "accountId": accountID, "ids": ids,
                 "properties": includeBody ? preview + ["textBody", "bodyValues", "attachments"] : preview,
-                "bodyProperties": ["partId", "type", "name", "size", "disposition"], "fetchTextBodyValues": includeBody, "maxBodyValueBytes": 24_000
+                "bodyProperties": Self.fastmailBodyFields, "fetchTextBodyValues": includeBody, "maxBodyValueBytes": 24_000
             ]
         )
         guard let values = result["list"] as? [[String: Any]] else {
@@ -70,9 +71,52 @@ extension ToolkitMailConnector {
                 from: ToolkitRemoteTransport.bounded(name, limit: 512), preview: ToolkitRemoteTransport.bounded(message["preview"] as? String, limit: 1_024),
                 body: body.map { ToolkitRemoteTransport.bounded($0, limit: 24_000) },
                 receivedAt: ToolkitRemoteTransport.date(message["receivedAt"] as? String),
-                attachments: includeBody ? fastmailAttachmentInfo(message) : []
+                attachments: includeBody
+                    ? fastmailAttachmentReferences(message, session: session, scope: accountID + ":" + identifier).map(\.metadata)
+                    : []
             )
         }
+    }
+
+    func fastmailAttachment(
+        _ session: FastmailSession, token: String, id: String, selection: ToolkitMailAttachmentPreviewRequest
+    ) async throws -> ToolkitMailAttachmentPreview {
+        guard let host = fastmailDownloadHost(session) else { throw ToolkitMailAttachmentPreviewError.unsupported }
+        let accountID = try fastmailAccountID(session)
+        guard Self.fastmailIsBlobIdentifier(accountID) else { throw ToolkitMailAttachmentPreviewError.unsupported }
+        let result = try await jmap(
+            session, token: token, call: "Email/get", parameters: [
+                "accountId": accountID, "ids": [id], "properties": ["id", "attachments"],
+                "bodyProperties": Self.fastmailBodyFields
+            ]
+        )
+        guard let item = (result["list"] as? [[String: Any]])?.first(where: { $0["id"] as? String == id }) else {
+            throw ToolkitMailAttachmentPreviewError.changed
+        }
+        let reference = try MailAttachmentReference.select(
+            selection, from: fastmailAttachmentReferences(item, session: session, scope: accountID + ":" + id)
+        )
+        guard let blobID = reference.id else { throw ToolkitMailAttachmentPreviewError.unsupported }
+        // The display name stays local. Use a fixed filename and MIME type when expanding the provider's URL template.
+        let download = try request(
+            host: host, path: "/jmap/download/" + accountID + "/" + blobID + "/preview.txt",
+            token: token, query: [.init(name: "type", value: "text/plain")], headers: ["Accept": "text/plain"]
+        )
+        return try reference.preview(await attachmentBytes(download, maximum: MailAttachmentReference.maximumBytes))
+    }
+
+    private static let fastmailBodyFields = ["partId", "type", "name", "size", "disposition", "blobId"]
+
+    private func fastmailDownloadHost(_ session: FastmailSession) -> String? {
+        // Fastmail's official JMAP documentation uses a separate fixed host for content downloads.
+        [Self.fastmailHost, "www.fastmailusercontent.com"].first { host in
+            session.downloadUrl == "https://\(host)/jmap/download/{accountId}/{blobId}/{name}?type={type}"
+        }
+    }
+
+    private static func fastmailIsBlobIdentifier(_ id: String) -> Bool {
+        (1...255).contains(id.utf8.count) &&
+            id.utf8.allSatisfy("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_".utf8.contains)
     }
 
     func fastmailArchive(_ session: FastmailSession, token: String, id: String) async throws {
@@ -161,15 +205,19 @@ extension ToolkitMailConnector {
         return id
     }
 
-    private func fastmailAttachmentInfo(_ message: [String: Any]) -> [ToolkitMailAttachment] {
+    private func fastmailAttachmentReferences(
+        _ message: [String: Any], session: FastmailSession, scope: String
+    ) -> [MailAttachmentReference] {
         let parts = message["attachments"] as? [[String: Any]] ?? []
+        let canDownload = fastmailDownloadHost(session) != nil
         return parts.prefix(24).compactMap { part in
             guard let name = part["name"] as? String, !name.isEmpty else { return nil }
-            return ToolkitMailAttachment(
-                name: ToolkitRemoteTransport.bounded(name, limit: 512),
-                contentType: (part["type"] as? String).map { ToolkitRemoteTransport.bounded($0, limit: 120) },
-                byteCount: (part["size"] as? Int).flatMap { $0 >= 0 ? $0 : nil },
-                isInline: (part["disposition"] as? String)?.lowercased() == "inline"
+            let blobID = (part["blobId"] as? String).flatMap {
+                canDownload && Self.fastmailIsBlobIdentifier($0) ? $0 : nil
+            }
+            return MailAttachmentReference(
+                id: blobID, scope: "fastmail:" + scope, name: name, type: part["type"] as? String, size: part["size"] as? Int,
+                inline: (part["disposition"] as? String)?.lowercased() == "inline"
             )
         }
     }

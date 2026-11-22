@@ -65,12 +65,41 @@ public struct ToolkitMailAttachment: Codable, Sendable {
     public let contentType: String?
     public let byteCount: Int?
     public let isInline: Bool
+    public let previewKey: String?
 
-    public init(name: String, contentType: String?, byteCount: Int?, isInline: Bool) {
+    public init(name: String, contentType: String?, byteCount: Int?, isInline: Bool, previewKey: String? = nil) {
         self.name = name
         self.contentType = contentType
         self.byteCount = byteCount
         self.isInline = isInline
+        self.previewKey = previewKey
+    }
+}
+
+public struct ToolkitMailAttachmentPreviewRequest: Codable, Sendable {
+    public let index: Int
+    public let previewKey: String
+
+    public init(index: Int, previewKey: String) {
+        self.index = index
+        self.previewKey = previewKey
+    }
+
+    public var isValid: Bool {
+        (0..<24).contains(index) && previewKey.utf8.count == 64 &&
+            previewKey.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+}
+
+public struct ToolkitMailAttachmentPreview: Codable, Sendable {
+    public let name: String
+    public let contentType: String
+    public let text: String
+
+    public init(name: String, contentType: String, text: String) {
+        self.name = name
+        self.contentType = contentType
+        self.text = text
     }
 }
 

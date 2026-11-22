@@ -35,17 +35,33 @@ extension ToolkitMailConnector {
             query: [.init(name: "$select", value: Self.messageProperties + (includeBody ? ",body,hasAttachments" : ""))],
             headers: ["Prefer": "outlook.body-content-type=\"text\", IdType=\"ImmutableId\""]
         )
-        let attachments: [ToolkitMailAttachment]
-        if includeBody && message.hasAttachments == true {
-            let response = try await get(
-                OutlookAttachments.self, host: Self.outlookHost, path: path + "/attachments", token: token,
-                query: [.init(name: "$select", value: "name,contentType,size,isInline"), .init(name: "$top", value: "24")]
-            )
-            attachments = response.value.prefix(24).compactMap { $0.metadata }
-        } else {
-            attachments = []
-        }
+        let attachments = includeBody && message.hasAttachments == true
+            ? try await outlookAttachmentReferences(token: token, id: id).map(\.metadata) : []
         return message.message(includeBody: includeBody, attachments: attachments)
+    }
+
+    func outlookAttachment(
+        token: String, id: String, selection: ToolkitMailAttachmentPreviewRequest
+    ) async throws -> ToolkitMailAttachmentPreview {
+        let reference = try MailAttachmentReference.select(
+            selection, from: await outlookAttachmentReferences(token: token, id: id)
+        )
+        guard let attachmentID = reference.id else { throw ToolkitMailAttachmentPreviewError.unsupported }
+        let url = try request(
+            host: Self.outlookHost, path: Self.outlookMailbox + "/messages/" + id + "/attachments/" + attachmentID + "/$value",
+            token: token, headers: ["Accept": "application/octet-stream", "Prefer": "IdType=\"ImmutableId\""]
+        )
+        return try reference.preview(await attachmentBytes(url, maximum: MailAttachmentReference.maximumBytes))
+    }
+
+    private func outlookAttachmentReferences(token: String, id: String) async throws -> [MailAttachmentReference] {
+        let response = try await get(
+            OutlookAttachments.self, host: Self.outlookHost, path: Self.outlookMailbox + "/messages/" + id + "/attachments",
+            token: token,
+            query: [.init(name: "$select", value: "id,name,contentType,size,isInline"), .init(name: "$top", value: "24")],
+            headers: ["Prefer": "IdType=\"ImmutableId\""]
+        )
+        return response.value.prefix(24).compactMap { $0.reference(scope: id) }
     }
 
     func outlookArchive(token: String, id: String) async throws {
@@ -91,18 +107,27 @@ private struct OutlookLocation: Decodable { let parentFolderId: String }
 
 private struct OutlookAttachments: Decodable {
     struct Entry: Decodable {
+        let id: String?
+        let objectType: String?
         let name: String?
         let contentType: String?
         let size: Int?
         let isInline: Bool?
 
-        var metadata: ToolkitMailAttachment? {
+        private enum CodingKeys: String, CodingKey {
+            case id, name, contentType, size, isInline
+            case objectType = "@odata.type"
+        }
+
+        func reference(scope: String) -> MailAttachmentReference? {
             guard let name, !name.isEmpty else { return nil }
-            return ToolkitMailAttachment(
-                name: ToolkitRemoteTransport.bounded(name, limit: 512),
-                contentType: contentType.map { ToolkitRemoteTransport.bounded($0, limit: 120) },
-                byteCount: size.flatMap { $0 >= 0 ? $0 : nil },
-                isInline: isInline ?? false
+            let file = objectType.map { ["#microsoft.graph.fileAttachment", "microsoft.graph.fileAttachment"].contains($0) }
+            let attachmentID = file == true ? id.flatMap { value in
+                (1...2_048).contains(value.utf8.count) &&
+                    value.utf8.allSatisfy(ToolkitMailConnector.isOpaqueIdentifierByte) ? value : nil
+            } : nil
+            return MailAttachmentReference(
+                id: attachmentID, scope: "outlook:" + scope, name: name, type: contentType, size: size, inline: isInline ?? false
             )
         }
     }

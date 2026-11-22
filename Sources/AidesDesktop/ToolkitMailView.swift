@@ -216,6 +216,7 @@ private struct ToolkitMailMessageSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @ViewState private var archiveID = UUID()
+    @ViewState private var attachmentPreview: ToolkitMailAttachmentPreview?
     @ViewState private var busy = false
     @ViewState private var error: String?
 
@@ -230,9 +231,27 @@ private struct ToolkitMailMessageSheet: View {
                     if !message.attachments.isEmpty {
                         Divider()
                         Text("Attachments").font(.headline)
-                        ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, attachment in
-                            LabeledContent(attachment.name, value: attachmentDetails(attachment))
-                                .font(.caption)
+                        ForEach(Array(message.attachments.enumerated()), id: \.offset) { index, attachment in
+                            HStack {
+                                LabeledContent(attachment.name, value: attachmentDetails(attachment))
+                                    .font(.caption)
+                                if let account, let key = attachment.previewKey {
+                                    Button("Preview text") { Task { await preview(index: index, key: key, account: account) } }
+                                        .accessibilityLabel("Preview text from \(attachment.name)")
+                                        .disabled(busy)
+                                }
+                            }
+                        }
+                        if let attachmentPreview {
+                            Divider()
+                            HStack {
+                                Text(verbatim: attachmentPreview.name).font(.headline)
+                                Spacer()
+                                Button("Close text preview") { self.attachmentPreview = nil }
+                            }
+                            Text(verbatim: attachmentPreview.text)
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
@@ -255,6 +274,23 @@ private struct ToolkitMailMessageSheet: View {
     private func attachmentDetails(_ attachment: ToolkitMailAttachment) -> String {
         let size = attachment.byteCount.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
         return [attachment.contentType, size, attachment.isInline ? "Inline" : nil].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func preview(index: Int, key: String, account: ToolkitMailAccount) async {
+        guard !busy else { return }
+        busy = true
+        error = nil
+        attachmentPreview = nil
+        defer { busy = false }
+        do {
+            attachmentPreview = try await workspace.toolkitPost(
+                ["mail", "accounts", account.id, "messages", message.id, "attachments", "preview"],
+                body: ToolkitMailAttachmentPreviewRequest(index: index, previewKey: key)
+            )
+        } catch is CancellationError {
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     private func prepareArchive(_ account: ToolkitMailAccount) async {

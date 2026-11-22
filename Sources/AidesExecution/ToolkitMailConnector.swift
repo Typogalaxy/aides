@@ -5,6 +5,7 @@ public typealias ToolkitMailConnectorError = ToolkitRemoteError
 
 public struct ToolkitMailConnector: Sendable {
     private let exchange: @Sendable (URLRequest) async throws -> Data
+    private let previewExchange: @Sendable (URLRequest, Int) async throws -> Data
 
     public init() {
         exchange = { request in
@@ -12,10 +13,18 @@ public struct ToolkitMailConnector: Sendable {
                 request, allowedHosts: ["gmail.googleapis.com", "graph.microsoft.com", "api.fastmail.com"]
             )
         }
+        previewExchange = { request, maximum in
+            try await ToolkitRemoteTransport.exchange(
+                request,
+                allowedHosts: ["gmail.googleapis.com", "graph.microsoft.com", "api.fastmail.com", "www.fastmailusercontent.com"],
+                maximumBytes: maximum
+            )
+        }
     }
 
     init(exchange: @escaping @Sendable (URLRequest) async throws -> Data) {
         self.exchange = exchange
+        previewExchange = { request, _ in try await exchange(request) }
     }
 
     public func search(
@@ -53,6 +62,33 @@ public struct ToolkitMailConnector: Sendable {
                 throw ToolkitMailConnectorError.rejected
             }
             return message
+        }
+    }
+
+    public func previewAttachment(
+        account: ToolkitMailAccount, token: String, messageID: String, selection: ToolkitMailAttachmentPreviewRequest
+    ) async throws -> ToolkitMailAttachmentPreview {
+        guard isValidMessageID(messageID), selection.isValid else { throw ToolkitMailConnectorError.rejected }
+        switch account.provider {
+        case .gmail:
+            try await checkGmailAccount(account, token: token)
+            return try await gmailAttachment(token: token, id: messageID, selection: selection)
+        case .outlook:
+            try await checkOutlookAccount(account, token: token)
+            return try await outlookAttachment(token: token, id: messageID, selection: selection)
+        case .fastmail:
+            let session = try await fastmailSession(account, token: token)
+            return try await fastmailAttachment(session, token: token, id: messageID, selection: selection)
+        }
+    }
+
+    func attachmentBytes(_ request: URLRequest, maximum: Int) async throws -> Data {
+        do {
+            let bytes = try await previewExchange(request, maximum)
+            guard bytes.count <= maximum else { throw ToolkitMailAttachmentPreviewError.unsupported }
+            return bytes
+        } catch ToolkitRemoteError.outputLimit {
+            throw ToolkitMailAttachmentPreviewError.unsupported
         }
     }
 

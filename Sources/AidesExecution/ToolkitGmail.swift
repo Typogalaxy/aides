@@ -45,8 +45,41 @@ extension ToolkitMailConnector {
             preview: ToolkitRemoteTransport.bounded(message.snippet, limit: 1_024),
             body: includeBody ? message.payload?.plainText().map { ToolkitRemoteTransport.bounded($0, limit: 24_000) } : nil,
             receivedAt: message.internalDate.flatMap(Int64.init).map { Date(timeIntervalSince1970: Double($0) / 1_000) },
-            attachments: includeBody ? Array(message.payload?.attachmentInfo().prefix(24) ?? []) : []
+            attachments: includeBody ? (message.payload?.attachmentInfo(scope: id).map(\.metadata) ?? []) : []
         )
+    }
+
+    func gmailAttachment(
+        token: String, id: String, selection: ToolkitMailAttachmentPreviewRequest
+    ) async throws -> ToolkitMailAttachmentPreview {
+        let messagePath = Self.gmailMailbox + "/messages/" + id
+        let fields = Self.gmailAttachmentFields(depth: 8)
+        let message = try await get(
+            GmailMessage.self, host: Self.gmailHost, path: messagePath, token: token,
+            query: [.init(name: "format", value: "full"), .init(name: "fields", value: "id,payload(\(fields))")]
+        )
+        guard message.id == id else { throw ToolkitMailAttachmentPreviewError.changed }
+        let reference = try MailAttachmentReference.select(
+            selection, from: message.payload?.attachmentInfo(scope: id) ?? []
+        )
+        guard let attachmentID = reference.id else { throw ToolkitMailAttachmentPreviewError.unsupported }
+        let attachment = try request(
+            host: Self.gmailHost, path: messagePath + "/attachments/" + attachmentID, token: token,
+            query: [.init(name: "fields", value: "data,size")]
+        )
+        let data = try await attachmentBytes(attachment, maximum: 24 * 1_024)
+        guard let body = try? JSONDecoder().decode(GmailMessage.Part.Body.self, from: data),
+              body.size == reference.metadata.byteCount, let encoded = body.data,
+              let bytes = GmailMessage.Part.decodeBase64URL(encoded) else {
+            throw ToolkitMailAttachmentPreviewError.unsupported
+        }
+        return try reference.preview(bytes)
+    }
+
+    private static func gmailAttachmentFields(depth: Int) -> String {
+        let fields = "mimeType,filename,headers(name,value),body(attachmentId,size)"
+        guard depth > 0 else { return fields }
+        return fields + ",parts(" + gmailAttachmentFields(depth: depth - 1) + ")"
     }
 
     func gmailArchive(token: String, id: String) async throws {
@@ -131,30 +164,36 @@ private struct GmailMessage: Decodable {
             headers?.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
         }
 
-        func attachmentInfo(depth: Int = 0) -> [ToolkitMailAttachment] {
+        func attachmentInfo(scope: String, depth: Int = 0) -> [MailAttachmentReference] {
             guard depth <= 8 else { return [] }
             if let filename, !filename.isEmpty {
-                return [ToolkitMailAttachment(
-                    name: ToolkitRemoteTransport.bounded(filename, limit: 512),
-                    contentType: mimeType.map { ToolkitRemoteTransport.bounded($0, limit: 120) },
-                    byteCount: body?.size.flatMap { $0 >= 0 ? $0 : nil },
-                    isInline: header("Content-Disposition")?.lowercased().hasPrefix("inline") ?? false
+                let id = body?.attachmentId.flatMap { value in
+                    (1...2_048).contains(value.utf8.count) &&
+                        value.utf8.allSatisfy(ToolkitMailConnector.isOpaqueIdentifierByte) ? value : nil
+                }
+                return [MailAttachmentReference(
+                    id: id, scope: "gmail:" + scope, name: filename, type: mimeType, size: body?.size,
+                    inline: header("Content-Disposition")?.lowercased().hasPrefix("inline") ?? false
                 )]
             }
-            var output: [ToolkitMailAttachment] = []
+            var output: [MailAttachmentReference] = []
             for part in parts ?? [] {
-                output.append(contentsOf: part.attachmentInfo(depth: depth + 1).prefix(24 - output.count))
+                output.append(contentsOf: part.attachmentInfo(scope: scope, depth: depth + 1).prefix(24 - output.count))
                 if output.count >= 24 { break }
             }
             return output
         }
 
+        static func decodeBase64URL(_ raw: String) -> Data? {
+            var normalized = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            normalized += String(repeating: "=", count: (4 - normalized.utf8.count % 4) % 4)
+            return Data(base64Encoded: normalized)
+        }
+
         func plainText(depth: Int = 0) -> String? {
             guard depth <= 8, filename?.isEmpty != false else { return nil }
             if mimeType == "text/plain", body?.attachmentId == nil, let raw = body?.data {
-                var base64 = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-                base64 += String(repeating: "=", count: (4 - base64.utf8.count % 4) % 4)
-                return Data(base64Encoded: base64).map { String(decoding: $0, as: UTF8.self) }
+                return Self.decodeBase64URL(raw).map { String(decoding: $0, as: UTF8.self) }
             }
             for part in parts ?? [] {
                 if let text = part.plainText(depth: depth + 1) { return text }
