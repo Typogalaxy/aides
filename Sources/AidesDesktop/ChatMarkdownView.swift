@@ -12,12 +12,18 @@ struct ChatMarkdownView: View {
             ForEach(document.sections.indices, id: \.self) { index in
                 let section = document.sections[index]
                 sectionView(section)
-                    .padding(.top, index == 0 ? 0 : section.isListItem ? 5 : bodySize * 0.85)
+                    .padding(.top, spacing(before: index, in: document))
             }
         }
         .font(.system(size: bodySize))
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func spacing(before index: Int, in document: ChatMarkdownDocument) -> CGFloat {
+        guard index > 0 else { return 0 }
+        if document.sections[index - 1].isHeading { return bodySize * 1.25 }
+        return document.sections[index].isListItem ? 5 : bodySize * 0.85
     }
 
     @ViewBuilder
@@ -69,7 +75,8 @@ struct ChatMarkdownView: View {
                 Text(verbatim: code.hasSuffix("\n") ? String(code.dropLast()) : code)
                     .font(.system(size: codeSize, design: .monospaced))
                     .fixedSize(horizontal: true, vertical: false)
-                    .padding(12)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
             }
             .background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
         case .thematicBreak:
@@ -80,16 +87,44 @@ struct ChatMarkdownView: View {
     }
 
     private func inlineText(_ source: AttributedString) -> some View {
-        var text = source
-        for run in source.runs {
-            if run.inlinePresentationIntent?.contains(.code) == true {
-                text[run.range].font = .system(size: codeSize, design: .monospaced)
-                text[run.range].backgroundColor = .primary.opacity(0.08)
+        let codeRuns = source.runs.filter { $0.inlinePresentationIntent?.contains(.code) == true }
+        return Group {
+            if codeRuns.isEmpty {
+                Text(source)
+            } else {
+                textWithMarkedCode(source, codeRuns: codeRuns)
+                    .textRenderer(InlineCodeBackground())
             }
         }
-        return Text(text)
-            .lineSpacing(4)
-            .fixedSize(horizontal: false, vertical: true)
+        .lineSpacing(4)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func textWithMarkedCode(_ source: AttributedString, codeRuns: [AttributedString.Runs.Run]) -> Text {
+        var text: Text?
+        var start = source.startIndex
+        for run in codeRuns {
+            if start < run.range.lowerBound {
+                append(Text(AttributedString(source[start..<run.range.lowerBound])), to: &text)
+            }
+            let code = Text(AttributedString(source[run.range]))
+                .font(.system(size: codeSize, design: .monospaced))
+                .customAttribute(InlineCode())
+            append(code, to: &text)
+            start = run.range.upperBound
+        }
+        if start < source.endIndex {
+            append(Text(AttributedString(source[start..<source.endIndex])), to: &text)
+        }
+        return text ?? Text(source)
+    }
+
+    private func append(_ next: Text, to text: inout Text?) {
+        if let previous = text {
+            text = Text("\(previous)\(next)")
+        } else {
+            text = next
+        }
     }
 
     private func columnAlignment(_ column: PresentationIntent.TableColumn) -> Alignment {
@@ -98,6 +133,28 @@ struct ChatMarkdownView: View {
         case .center: .center
         case .right: .trailing
         @unknown default: .leading
+        }
+    }
+}
+
+private struct InlineCode: TextAttribute {}
+
+private struct InlineCodeBackground: TextRenderer {
+    private let horizontalInset: CGFloat = 4
+    private let verticalInset: CGFloat = 2
+
+    var displayPadding: EdgeInsets {
+        EdgeInsets(top: verticalInset, leading: horizontalInset, bottom: verticalInset, trailing: horizontalInset)
+    }
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        for line in layout {
+            for run in line where run[InlineCode.self] != nil {
+                let bounds = run.typographicBounds.rect.insetBy(dx: -horizontalInset, dy: -verticalInset)
+                let pill = Path(roundedRect: bounds, cornerRadius: 4)
+                context.fill(pill, with: .color(.primary.opacity(0.1)))
+            }
+            context.draw(line)
         }
     }
 }
@@ -153,6 +210,11 @@ struct ChatMarkdownDocument {
 
         var isListItem: Bool {
             if case .block(let block) = self { block.isListItem } else { false }
+        }
+
+        var isHeading: Bool {
+            guard case .block(let block) = self, case .header = block.kind else { return false }
+            return true
         }
     }
 
