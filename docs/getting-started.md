@@ -13,8 +13,8 @@ Launch the desktop app using `swift run AidesDesktop` and enter the code for
 `http://127.0.0.1:8317`. A packaged app can start the per-user service and pair
 locally from its connection screen. The host data directory is
 `~/Library/Application Support/Aides` by default; set `AIDES_DATA_DIR` to use a
-different protected directory. Close to the side effects of a running job,
-check the recorded outcome before resuming after a restart.
+different protected directory. If a job was interrupted while performing an
+external action, check its recorded outcome before retrying.
 
 ## Local and cloud execution
 
@@ -44,6 +44,12 @@ replacements for review. Apply changes one file at a time from the desktop;
 a change to the file since the proposal is a conflict. Use your normal version
 control workflow to review and test changes.
 
+To send a confirmation email, the host needs an existing local sendmail-compatible
+transport and a configured sender. The secretary can prepare a plain-text
+message. Sending requires approving its exact recipient, subject and body.
+The result records whether the transport accepted the message; delivery must
+be checked separately if the result is uncertain.
+
 ## Add another Mac
 
 The HTTP server binds to loopback. Put it behind a private HTTPS connection
@@ -70,6 +76,6 @@ maintainer credentials.
 
 The iPhone client and QR pairing are in the backlog. This build's tool surface
 is currently scoped to project files, reminders, local memory, model tasks and
-structured reviews. Mail delivery, general desktop control, other third-party
-connectors and autonomous repository-wide coding remain outside the tested
-surface.
+structured reviews. General desktop control, mailbox ingestion, other
+third-party connectors and autonomous repository-wide coding are not part of
+the current runtime.
