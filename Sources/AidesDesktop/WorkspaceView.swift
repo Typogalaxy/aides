@@ -38,6 +38,13 @@ struct WorkspaceView: View {
                 connectedView
             } else {
                 ConnectionView(workspace: workspace)
+                    .overlay(alignment: .bottomTrailing) {
+                        if updates.hasUpdate {
+                            Button("Update available", action: updates.check)
+                                .buttonStyle(.borderedProminent)
+                                .padding()
+                        }
+                    }
             }
         }
         .tint(.aidesAccent)

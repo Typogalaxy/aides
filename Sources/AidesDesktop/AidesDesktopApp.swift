@@ -14,7 +14,10 @@ struct AidesDesktopApp: App {
             WorkspaceView(workspace: workspace, updates: updates)
                 .preferredColorScheme(appearance.colorScheme)
                 .frame(minWidth: 820, minHeight: 550)
-                .task { await workspace.restore() }
+                .task {
+                    updates.start()
+                    await workspace.restore()
+                }
         }
         .defaultSize(width: 1230, height: 800)
         .commands {
@@ -40,11 +43,3 @@ enum DesktopAppearance: String, CaseIterable, Identifiable {
     }
 }
 
-@MainActor
-@Observable
-final class DesktopUpdates {
-    var isAvailable: Bool { false }
-    var hasUpdate: Bool { false }
-
-    func check() {}
-}
