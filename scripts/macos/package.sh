@@ -37,7 +37,7 @@ if [[ -z "$bin_dir" ]]; then
 fi
 app="$stage/image/Aides.app"
 contents="$app/Contents"
-mkdir -p "$contents/MacOS" "$contents/Helpers" "$contents/Resources"
+mkdir -p "$contents/MacOS" "$contents/Helpers" "$contents/Resources" "$contents/Frameworks"
 cp "$script_dir/Info.plist" "$contents/Info.plist"
 plutil -insert CFBundleShortVersionString -string "$version" "$contents/Info.plist"
 plutil -insert CFBundleVersion -string "$build_number" "$contents/Info.plist"
@@ -45,12 +45,13 @@ install -m 755 "$bin_dir/AidesDesktop" "$contents/MacOS/AidesDesktop"
 install -m 755 "$bin_dir/AidesServer" "$contents/Helpers/AidesServer"
 install -m 755 "$script_dir/aides-service" "$contents/Resources/aides-service"
 ln -s /Applications "$stage/image/Applications"
+xcrun swift-stdlib-tool --copy --platform macosx --destination "$contents/Frameworks" \
+    --scan-executable "$contents/MacOS/AidesDesktop" --scan-executable "$contents/Helpers/AidesServer"
 
 framework=""
 if [[ "${AIDES_ENABLE_SPARKLE:-0}" == 1 ]]; then
     framework_source="$(find .build/artifacts/sparkle -type d -name Sparkle.framework -print -quit)"
     [[ -n "$framework_source" ]] || { printf 'Unable to find the built Sparkle framework.\n' >&2; exit 1; }
-    mkdir -p "$contents/Frameworks"
     framework="$contents/Frameworks/Sparkle.framework"
     ditto "$framework_source" "$framework"
 fi
@@ -70,6 +71,9 @@ if [[ "$identity" != - ]]; then
         sign+=(--keychain "$AIDES_CODESIGN_KEYCHAIN")
     fi
 fi
+while IFS= read -r -d '' library; do
+    "${sign[@]}" "$library"
+done < <(find "$contents/Frameworks" -maxdepth 1 -type f -name '*.dylib' -print0)
 "${sign[@]}" "$contents/Helpers/AidesServer"
 if [[ -n "$framework" ]]; then
     framework_version="$framework/Versions/Current"
