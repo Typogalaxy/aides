@@ -103,6 +103,14 @@ class OllamaFixture(BaseHTTPRequestHandler):
                 "summary": "Update the isolated fixture",
                 "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
             })
+        elif text == "Fixture Toolkit draft email":
+            selected = re.search(r"Use accountID ([a-z0-9_-]+)", system)
+            answer = json.dumps({
+                "text": "Proposed fixture email draft",
+                "mailDraft": {"accountID": selected[1] if selected else "ungranted-mailbox",
+                              "to": ["recipient@example.com"], "subject": "Fixture confirmation",
+                              "body": "This is a synthetic test draft."},
+            })
         elif text == "Fixture Toolkit query scoped memory":
             evidence = [item["content"] for item in request["messages"] if item["content"].startswith("Approved local Toolkit query")]
             answer = "Local Toolkit evidence present" if any(PRIVATE_MARKER in item for item in evidence) else "No local Toolkit evidence"
@@ -167,6 +175,11 @@ class IsolatedServer:
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "AIDES_DATA_DIR": str(self.data),
             "AIDES_HOST": "127.0.0.1",
+            "AIDES_MAIL_SMOKE_TOKEN": "synthetic-fixture-only",
+            "AIDES_MAIL_ACCOUNTS": json.dumps([{
+                "id": "fixture-mail", "provider": "gmail", "label": "Draft fixture",
+                "address": "owner@example.com", "allowSend": True, "credentialEnvironment": "AIDES_MAIL_SMOKE_TOKEN",
+            }]),
         }
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
@@ -419,6 +432,28 @@ def exercise_toolkit_models(anonymous, client, secretary, cloud):
     print("PASS Toolkit secretary and Worker scoping, confirmation, revocation, and audit")
 
 
+def exercise_toolkit_mail_proposal(anonymous, client, secretary, cloud):
+    text = "Fixture Toolkit draft email"
+    grant = {"toolkitMailAccountID": "fixture-mail"}
+    thread = f"/threads/{secretary}/messages"
+    client.post(thread, {"text": text, "toolkitMailAccountID": "unknown"}, status=403)
+    client.post("/tasks", {"title": "Cloud mail preparation", "modelID": cloud, **grant}, status=403)
+    client.post(thread, {"text": text, **grant})
+    reply = wait_for_reply(client, secretary, "Proposed fixture email draft")
+    require(reply["toolkitMailSuggestion"]["accountID"] == "fixture-mail", "Secretary used another mailbox")
+    require(not client.request("GET", "/toolkit/mail/drafts"), "Model output created a draft without confirmation")
+    prepare = f'/toolkit/mail/suggestions/{reply["id"]}/prepare'
+    anonymous.post(prepare, {}, status=401)
+    receipt = client.post(prepare, {})
+    require(receipt["status"] == "awaitingConfirmation" and receipt["subject"] == "Fixture confirmation"
+            and receipt["to"] == ["recipient@example.com"], "Prepare did not freeze the proposed email for final review")
+    require(client.post(prepare, {}) == receipt, "Repeated preparation added another mail draft")
+    state = client.post("/tasks", {"title": "Local Agent mail draft", "instruction": text, **grant})
+    task = wait_for_task(client, find(state["tasks"], title="Local Agent mail draft")["id"], "completed")
+    require(task["toolkitMailSuggestion"]["accountID"] == "fixture-mail", "Local Worker did not propose an allowed draft")
+    print("PASS local Agent and Worker mail proposals, explicit preparation, and separation from delivery")
+
+
 def exercise(server, mock_ollama):
     invite = server.invite()
     anonymous = server.start()
@@ -530,6 +565,7 @@ def exercise(server, mock_ollama):
     cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
     exercise_toolkit_models(anonymous, client, secretary, cloud)
     exercise_toolkit_writes(client)
+    exercise_toolkit_mail_proposal(anonymous, client, secretary, cloud)
     selection = {"action": "memory.search", "query": "Fixture marker", "limit": 3}
     scoped = {"title": "Scoped local query", "instruction": "Fixture Toolkit query scoped memory",
               "threadID": project_thread, "toolkitLocalSelection": selection}

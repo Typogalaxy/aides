@@ -29,7 +29,10 @@ text changes. To use file output in a local analysis Worker, select
 a completed read or listing as its input. The server rechecks that the folder
 grant still exists when it builds the model request. Aides data query results
 can also be selected as local Worker inputs. Cloud Workers cannot accept
-these Toolkit inputs. Calendar, Contacts and window data stay on the Mac
+these Toolkit inputs. A local conversation or Worker can instead select an
+available send-enabled mailbox and propose a plain-text draft. Review the
+recipients and content before preparing it in Toolkit. The mail draft then
+requires a separate send confirmation. Calendar, Contacts and window data stay on the Mac
 displaying them. Existing recurring calendar events and events with guests
 are handled in system Calendar.
 
