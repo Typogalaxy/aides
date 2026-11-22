@@ -44,7 +44,7 @@ struct WorkspaceView: View {
                 ConnectionView(workspace: workspace)
                     .overlay(alignment: .bottomTrailing) {
                         if updates.hasUpdate {
-                            Button("Update available", action: updates.check)
+                            Button("Update available", action: updates.openUpdate)
                                 .buttonStyle(.borderedProminent)
                                 .padding()
                         }
@@ -59,6 +59,17 @@ struct WorkspaceView: View {
             Button("OK") { workspace.error = nil }
         } message: {
             Text(workspace.error ?? "")
+        }
+        .alert("Software Update", isPresented: Binding(
+            get: { updates.manualMessage != nil },
+            set: { if !$0 { updates.dismissManualMessage() } }
+        )) {
+            if updates.hasUpdate {
+                Button("Open Release") { updates.openUpdate() }
+            }
+            Button("OK", role: .cancel) { updates.dismissManualMessage() }
+        } message: {
+            Text(updates.manualMessage ?? "")
         }
         .sheet(isPresented: $showsNewConversation) {
             NewConversationSheet(workspace: workspace) { id in
@@ -158,7 +169,7 @@ struct WorkspaceView: View {
                 }
             }
             if updates.hasUpdate {
-                railButton("Update available", icon: "arrow.down.circle", highlighted: true, action: updates.check)
+                railButton("Update available", icon: "arrow.down.circle", highlighted: true, action: updates.openUpdate)
             }
 
             destinationButton(.settings)
