@@ -238,6 +238,21 @@ struct NewTaskSheet: View {
     @ViewState private var modelID: UUID?
     @ViewState private var delayed = false
     @ViewState private var scheduledAt = Date.now.addingTimeInterval(3600)
+    @ViewState private var sharedMemoryIDs: Set<UUID> = []
+
+    private var usesCloud: Bool {
+        workspace.state.models.first { $0.id == modelID }?.kind.isLocal == false
+    }
+
+    private var shareableMemories: [MemoryRecord] {
+        let projectScope = projectID.map { "project:\($0.uuidString.lowercased())" }
+        let areaScope = workspace.state.threads.first { $0.id == threadID && $0.role == .area }
+            .map { "area:\($0.id.uuidString.lowercased())" }
+        return workspace.memories.filter {
+            $0.sensitivity == .cloudAllowed &&
+                ($0.scope == "global" || $0.scope == projectScope || $0.scope == areaScope)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 17) {
@@ -247,6 +262,23 @@ struct NewTaskSheet: View {
                 TextField("Instructions", text: $instruction, axis: .vertical)
                     .lineLimit(3...6)
                 ModelPicker(models: workspace.state.models, selection: $modelID)
+                if usesCloud && !shareableMemories.isEmpty {
+                    Section("Memory to share (up to four)") {
+                        ForEach(shareableMemories) { memory in
+                            Toggle(memory.key, isOn: Binding(
+                                get: { sharedMemoryIDs.contains(memory.id) },
+                                set: { selected in
+                                    if selected {
+                                        sharedMemoryIDs.insert(memory.id)
+                                    } else {
+                                        sharedMemoryIDs.remove(memory.id)
+                                    }
+                                }
+                            ))
+                            .disabled(sharedMemoryIDs.count >= 4 && !sharedMemoryIDs.contains(memory.id))
+                        }
+                    }
+                }
                 Toggle("Start later", isOn: $delayed)
                 if delayed { DatePicker("Start", selection: $scheduledAt, in: Date.now...) }
             }
@@ -258,7 +290,8 @@ struct NewTaskSheet: View {
                         let request = TaskRequest(
                             title: title.trimmed, instruction: instruction.trimmed.isEmpty ? nil : instruction.trimmed,
                             threadID: threadID, projectID: projectID, modelID: modelID,
-                            scheduledAt: delayed ? scheduledAt : nil
+                            scheduledAt: delayed ? scheduledAt : nil,
+                            sharedMemoryIDs: usesCloud ? shareableMemories.filter { sharedMemoryIDs.contains($0.id) }.map(\.id) : nil
                         )
                         if let id = await workspace.createTask(request) {
                             dismiss()
@@ -273,6 +306,10 @@ struct NewTaskSheet: View {
         }
         .padding(22)
         .frame(width: 490)
+        .task(id: modelID) {
+            sharedMemoryIDs = []
+            if usesCloud { await workspace.refreshMemories() }
+        }
     }
 }
 

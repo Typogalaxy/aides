@@ -164,6 +164,14 @@ struct ApprovalDetails: View {
             Text(task.instruction)
                 .textSelection(.enabled)
                 .font(.callout)
+            if let memories = task.sharedMemories, !memories.isEmpty {
+                Text("Saved information to send").font(.callout.weight(.semibold))
+                ForEach(memories) { memory in
+                    Text("\(memory.key): \(memory.value)")
+                        .font(.callout)
+                        .textSelection(.enabled)
+                }
+            }
             HStack {
                 Button("Deny") { Task { await workspace.approve(task.id, approved: false) } }
                 Button("Allow run") { Task { await workspace.approve(task.id, approved: true) } }

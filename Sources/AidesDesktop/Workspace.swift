@@ -433,6 +433,7 @@ struct TaskRequest: Encodable {
     let projectID: UUID?
     let modelID: UUID?
     let scheduledAt: Date?
+    let sharedMemoryIDs: [UUID]?
 }
 
 struct ReviewRequest: Encodable {
