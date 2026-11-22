@@ -14,6 +14,7 @@ struct ToolkitComputerView: View {
     @ViewState private var appPID: pid_t?
     @ViewState private var windowID: CGWindowID?
     @ViewState private var action: DesktopAction?
+    @ViewState private var digit = 0
     @ViewState private var snapshot: CGImage?
     @ViewState private var busy = false
     @ViewState private var status: String?
@@ -53,7 +54,10 @@ struct ToolkitComputerView: View {
                         Button("Review snapshot…") { action = .snapshot(app, window) }
                         if app.bundleID == CalculatorButton.bundleID {
                             if accessibilityEnabled {
-                                Button("Review Calculator keypress…") { action = .calculatorSeven(app, window) }
+                                Picker("Calculator key", selection: $digit) {
+                                    ForEach(0...9, id: \.self) { digit in Text(String(digit)).tag(digit) }
+                                }
+                                Button("Review Calculator keypress…") { action = .calculatorDigit(app, window, digit) }
                             } else {
                                 Button("Allow Calculator control…") { requestAccessibility() }
                             }
@@ -154,9 +158,9 @@ struct ToolkitComputerView: View {
                 guard let current = NSRunningApplication(processIdentifier: app.id),
                       current.bundleIdentifier == app.bundleID, Self.allowedApps.contains(app.bundleID), !current.isTerminated,
                       current.activate() else { throw DesktopAccessError.unavailable }
-            case .calculatorSeven(let app, let selected):
-                try await pressCalculatorSeven(app, window: selected)
-                status = "Pressed 7 in Calculator."
+            case .calculatorDigit(let app, let selected, let digit):
+                try await pressCalculatorDigit(digit, app: app, window: selected)
+                status = "Pressed \(digit) in Calculator."
             case .snapshot(let app, let selected):
                 guard CGPreflightScreenCaptureAccess() else { throw DesktopAccessError.permission }
                 let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -185,7 +189,7 @@ struct ToolkitComputerView: View {
         status = accessibilityEnabled ? nil : "Grant Aides Accessibility access in System Settings, then use this button again."
     }
 
-    private func pressCalculatorSeven(_ app: DesktopApp, window selected: DesktopWindow) async throws {
+    private func pressCalculatorDigit(_ digit: Int, app: DesktopApp, window selected: DesktopWindow) async throws {
         guard AXIsProcessTrusted() else {
             accessibilityEnabled = false
             throw DesktopAccessError.accessibilityPermission
@@ -213,7 +217,7 @@ struct ToolkitComputerView: View {
         guard appWindows.count == 1, let window = appWindows.first, window.windowID == selected.id else {
             throw DesktopAccessError.calculatorSelection
         }
-        try CalculatorButton.pressSeven(app, in: window)
+        try CalculatorButton.press(digit, app: app, in: window)
     }
 
     private static func isWindow(_ window: SCWindow, in app: DesktopApp) -> Bool {
@@ -237,13 +241,13 @@ private struct DesktopWindow: Identifiable {
 private enum DesktopAction {
     case activate(DesktopApp)
     case snapshot(DesktopApp, DesktopWindow)
-    case calculatorSeven(DesktopApp, DesktopWindow)
+    case calculatorDigit(DesktopApp, DesktopWindow, Int)
 
     var button: String {
         switch self {
         case .activate: "Confirm and activate"
         case .snapshot: "Confirm and capture"
-        case .calculatorSeven: "Confirm and press 7"
+        case .calculatorDigit(_, _, let digit): "Confirm and press \(digit)"
         }
     }
 
@@ -251,7 +255,7 @@ private enum DesktopAction {
         switch self {
         case .activate(let app): "Bring \(app.name) to the front."
         case .snapshot(let app, let window): "Take one local snapshot of \(window.title) in \(app.name)."
-        case .calculatorSeven(_, let window): "Bring \(window.title) to the front and press Calculator’s 7 button once."
+        case .calculatorDigit(_, let window, let digit): "Bring \(window.title) to the front and press Calculator’s \(digit) button once."
         }
     }
 }
@@ -264,7 +268,7 @@ private enum DesktopAccessError: LocalizedError {
         case .permission: "Allow screen recording in macOS Privacy & Security to preview one selected window."
         case .unavailable: "The app or window is no longer available. Choose it again."
         case .accessibilityPermission: "Allow Accessibility access in macOS Privacy & Security to press a Calculator button."
-        case .calculatorSelection: "The selected Calculator window or its 7 button could not be verified. Keep only that Calculator window open and try again."
+        case .calculatorSelection: "The selected Calculator window or numeric button could not be verified. Keep only that Calculator window open and try again."
         case .calculatorPress: "Calculator did not confirm the press. Check its display before trying again."
         }
     }
@@ -286,11 +290,12 @@ private enum CalculatorButton {
         return running
     }
 
-    static func pressSeven(_ app: DesktopApp, in window: SCWindow) throws {
-        guard AXIsProcessTrusted(), validate(app) != nil,
+    static func press(_ digit: Int, app: DesktopApp, in window: SCWindow) throws {
+        guard (0...9).contains(digit), AXIsProcessTrusted(), validate(app) != nil,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == app.id else {
             throw DesktopAccessError.calculatorSelection
         }
+        let title = String(digit)
         let application = AXUIElementCreateApplication(app.id)
         guard AXUIElementSetMessagingTimeout(application, 0.2) == .success,
               let windowElement = element(attribute(application, kAXFocusedWindowAttribute)),
@@ -300,11 +305,11 @@ private enum CalculatorButton {
               let size = size(attribute(windowElement, kAXSizeAttribute)),
               abs(position.x - window.frame.minX) <= 3, abs(position.y - window.frame.minY) <= 3,
               abs(size.width - window.frame.width) <= 3, abs(size.height - window.frame.height) <= 3,
-              let button = try uniqueSeven(in: windowElement) else {
+              let button = try uniqueButton(titled: title, in: windowElement) else {
             throw DesktopAccessError.calculatorSelection
         }
         var buttonPID: pid_t = 0
-        guard AXUIElementGetPid(button, &buttonPID) == .success, buttonPID == app.id, isSeven(button),
+        guard AXUIElementGetPid(button, &buttonPID) == .success, buttonPID == app.id, isButton(button, titled: title),
               let focused = element(attribute(application, kAXFocusedWindowAttribute)),
               CFEqual(focused, windowElement), validate(app) != nil,
               NSWorkspace.shared.frontmostApplication?.processIdentifier == app.id else {
@@ -316,7 +321,7 @@ private enum CalculatorButton {
         }
     }
 
-    private static func uniqueSeven(in window: AXUIElement) throws -> AXUIElement? {
+    private static func uniqueButton(titled title: String, in window: AXUIElement) throws -> AXUIElement? {
         let limit = 128
         let deadline = ContinuousClock.now + .seconds(1)
         var remaining = [window]
@@ -325,7 +330,7 @@ private enum CalculatorButton {
         while let node = remaining.popLast() {
             guard examined < limit, ContinuousClock.now < deadline else { throw DesktopAccessError.calculatorSelection }
             examined += 1
-            if isSeven(node) {
+            if isButton(node, titled: title) {
                 var actions: CFArray?
                 if AXUIElementCopyActionNames(node, &actions) == .success,
                    (actions as? [String])?.contains(kAXPressAction) == true {
@@ -350,10 +355,10 @@ private enum CalculatorButton {
         return match
     }
 
-    private static func isSeven(_ node: AXUIElement) -> Bool {
+    private static func isButton(_ node: AXUIElement, titled title: String) -> Bool {
         attribute(node, kAXRoleAttribute) as? String == kAXButtonRole &&
             attribute(node, kAXEnabledAttribute) as? Bool == true &&
-            [kAXTitleAttribute, kAXDescriptionAttribute].contains { attribute(node, $0) as? String == "7" }
+            [kAXTitleAttribute, kAXDescriptionAttribute].contains { attribute(node, $0) as? String == title }
     }
 
     private static func attribute(_ node: AXUIElement, _ name: String) -> CFTypeRef? {
