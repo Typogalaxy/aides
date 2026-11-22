@@ -177,10 +177,17 @@ public enum ProjectFiles {
     private static func withDirectory<Result>(
         _ parts: [String], in root: URL, operation: (CInt) throws -> Result
     ) throws -> Result {
-        guard root.isFileURL, root.path.hasPrefix("/"), root.standardizedFileURL.path != "/" else {
+        let path = root.path
+        var rootPieces = path.split(separator: "/").map(String.init)
+        guard root.isFileURL, path.hasPrefix("/"), let first = rootPieces.first,
+              !rootPieces.contains("."), !rootPieces.contains("..") else {
             throw ProjectFileError.unavailableDirectory
         }
-        let rootPieces = root.standardizedFileURL.path.split(separator: "/").map(String.init)
+        // Foundation may shorten these Darwin system aliases. Traverse the
+        // actual directory names so O_NOFOLLOW stays in force on every step.
+        if ["tmp", "var", "etc"].contains(first) {
+            rootPieces.insert("private", at: 0)
+        }
         var directory = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard directory >= 0 else { throw ProjectFileError.unavailableDirectory }
         defer { close(directory) }
