@@ -298,7 +298,8 @@ struct ChatView: View {
                             if folder != nil { toolkitMailAccountID = nil }
                         }
                     }
-                    if workspace.appshots.draft == nil && workspace.state.settings.defaultModelID != nil {
+                    if conversation.role != .secretary, workspace.appshots.draft == nil,
+                       workspace.state.settings.defaultModelID != nil {
                         ToolkitMailAccountPicker(
                             workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft…"
                         )
