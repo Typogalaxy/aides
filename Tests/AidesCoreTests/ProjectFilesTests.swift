@@ -87,7 +87,7 @@ import Testing
         _ = try? setACL(["-N"])
         try? FileManager.default.removeItem(at: directory)
     }
-    try #require(setACL(["+a", "everyone deny delete"]) == 0)
+    try #require(setACL(["+a", "everyone deny execute"]) == 0)
     try ProjectFiles.apply(path: "file.txt", expected: "old", replacement: "new", in: directory)
     let acl = try #require(acl_get_file(file.path, ACL_TYPE_EXTENDED))
     defer { acl_free(UnsafeMutableRawPointer(acl)) }
