@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 from pathlib import Path
 import re
 import socket
@@ -99,6 +100,16 @@ class OllamaFixture(BaseHTTPRequestHandler):
             answer = json.dumps({
                 "summary": "Update the isolated fixture",
                 "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
+            })
+        elif text.startswith("Fixture Toolkit "):
+            grant = re.search(r"Use resourceID ([0-9A-F-]+)", system)
+            answer = json.dumps({
+                "text": "Proposed fixture file action",
+                "toolkit": {
+                    "tool": "files.list",
+                    "resourceID": grant[1] if grant and text != "Fixture Toolkit wrong resource" else str(uuid.uuid4()),
+                    "path": "",
+                },
             })
         elif text == SCHEDULE_REQUEST:
             first_run = datetime.now(timezone.utc) + timedelta(minutes=10)
@@ -308,6 +319,36 @@ def exercise_toolkit(anonymous, client, target, owner, grant):
     return completed
 
 
+def exercise_toolkit_models(anonymous, client, secretary, cloud):
+    grant = client.post("/device-files/grants", {"name": "One request only", "allowMoves": False})
+    payload = {"text": "Fixture Toolkit list files", "toolkitResourceID": grant["id"]}
+    thread = f"/threads/{secretary}/messages"
+    client.post(thread, {**payload, "toolkitResourceID": str(uuid.uuid4())}, status=404)
+    client.post(thread, payload)
+    reply = wait_for_reply(client, secretary, "Proposed fixture file action")
+    require(reply["toolkitSuggestion"]["resourceID"] == grant["id"], "Secretary lost the task-specific folder")
+    require(client.post("/device-files/jobs/next", {}).get("job") is None, "Secretary dispatched without confirmation")
+    accept = f'/toolkit/suggestions/{reply["id"]}/accept'
+    anonymous.post(accept, {}, status=401)
+    accepted = client.post(accept, {})
+    require(accepted["id"] == reply["id"] and accepted["status"] == "queued",
+            "Confirmation did not freeze the proposed command")
+    require(client.post(accept, {}) == accepted, "Repeated chat confirmation added a duplicate tool task")
+    client.post("/device-files/jobs/next", {})
+    client.post(f'/device-files/jobs/{accepted["id"]}/finish', {"result": "Synthetic granted folder"})
+
+    client.post("/tasks", {"title": "External Toolkit worker", "modelID": cloud,
+                           "toolkitResourceID": grant["id"]}, status=403)
+    state = client.post("/tasks", {"title": "Scoped Toolkit worker", "instruction": payload["text"],
+                                   "toolkitResourceID": grant["id"]})
+    worker = wait_for_task(client, find(state["tasks"], title="Scoped Toolkit worker")["id"], "completed")
+    require(worker["toolkitSuggestion"]["resourceID"] == grant["id"], "Local Worker did not propose the tool")
+    client.request("DELETE", f'/device-files/grants/{grant["id"]}')
+    client.post(f'/toolkit/suggestions/{worker["id"]}/accept', {}, status=409)
+    require(client.post("/device-files/jobs/next", {}).get("job") is None, "Revoked proposal still dispatched")
+    print("PASS Toolkit secretary and Worker scoping, confirmation, and revocation")
+
+
 def exercise(server, mock_ollama):
     invite = server.invite()
     anonymous = server.start()
@@ -411,6 +452,7 @@ def exercise(server, mock_ollama):
     print("PASS explicit and idempotent secretary reminder confirmation")
 
     cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
+    exercise_toolkit_models(anonymous, client, secretary, cloud)
     state = client.post("/tasks", {"title": "Cloud fixture request", "modelID": cloud})
     cloud_task = find(state["tasks"], title="Cloud fixture request")
     require(cloud_task["status"] == "waitingApproval" and not cloud_task["approvedCloud"], "Cloud execution bypassed approval")
