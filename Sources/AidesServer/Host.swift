@@ -11,7 +11,11 @@ struct Host: Sendable {
     init(environment: [String: String] = ProcessInfo.processInfo.environment) throws {
         let appSupport = FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support/Aides", directoryHint: .isDirectory)
-        directory = environment["AIDES_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? appSupport
+        let configuredDirectory = environment["AIDES_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? appSupport
+        try FileManager.default.createDirectory(
+            at: configuredDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+        )
+        directory = configuredDirectory.resolvingSymlinksInPath().standardizedFileURL
         bind = environment["AIDES_HOST"] ?? "127.0.0.1"
         guard ["127.0.0.1", "::1"].contains(bind) else {
             throw StorageError("Aides binds to loopback. Use a private authenticated HTTPS proxy for another Mac.")
@@ -20,7 +24,6 @@ struct Host: Sendable {
             throw StorageError("Invalid server port")
         }
         self.port = port
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
 
     func createInvite() throws -> String {

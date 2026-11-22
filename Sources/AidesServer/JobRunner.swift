@@ -104,6 +104,12 @@ actor JobRunner {
         if !model.kind.isLocal {
             try CloudBoundary.validate(input)
             try await LocalReview.check("Send approved material to \(model.kind.rawValue)", data: input, in: snapshot)
+            try Task.checkCancellation()
+            let current = await store.snapshot()
+            guard current.app.settings.reviewModelID == snapshot.app.settings.reviewModelID,
+                  current.app.tasks.contains(where: { $0.id == work.id && $0.approvedCloud && $0.status == .running }) else {
+                throw StorageError("The approval or review policy changed before dispatch.")
+            }
         }
         if let provider = CodingReviewProvider(rawValue: model.kind.rawValue) {
             return try await CodingReviewClient().generate(.init(
