@@ -8,6 +8,7 @@ cd "$repo"
 version="${1:-0.1.0}"
 build_number="${2:-1}"
 output_dir="${AIDES_DIST_DIR:-$repo/dist}"
+swiftpm_dir="${AIDES_PACKAGE_SWIFTPM_DIR:-$repo/.build}"
 identity="${AIDES_CODESIGN_IDENTITY:--}"
 feed_url="${AIDES_UPDATE_FEED_URL:-}"
 update_key="${AIDES_UPDATE_PUBLIC_KEY:-}"
@@ -28,7 +29,7 @@ mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd -P)"
 stage="$(mktemp -d "$output_dir/.package.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
-build_args=(-c release -Xlinker -rpath -Xlinker '@executable_path/../Frameworks')
+build_args=(--scratch-path "$swiftpm_dir" -c release -Xlinker -rpath -Xlinker '@executable_path/../Frameworks')
 bin_dir="${AIDES_BUILD_PRODUCTS_DIR:-}"
 if [[ -z "$bin_dir" ]]; then
     swift build "${build_args[@]}" --product AidesDesktop
@@ -55,11 +56,27 @@ xcrun swift-stdlib-tool --copy --platform macosx --destination "$contents/Framew
 
 framework=""
 if [[ "${AIDES_ENABLE_SPARKLE:-0}" == 1 ]]; then
-    framework_source="$(find .build/artifacts/sparkle -type d -name Sparkle.framework -print -quit)"
+    framework_source="$(find "$swiftpm_dir/artifacts/sparkle" -type d -name Sparkle.framework -print -quit)"
     [[ -n "$framework_source" ]] || { printf 'Unable to find the built Sparkle framework.\n' >&2; exit 1; }
     framework="$contents/Frameworks/Sparkle.framework"
     ditto "$framework_source" "$framework"
 fi
+
+notices="$contents/Resources/Licenses"
+mkdir -p "$notices"
+install -m 644 "$repo/LICENSE" "$notices/Aides.txt"
+dependencies=("$swiftpm_dir"/checkouts/*)
+if [[ -n "$framework" ]]; then
+    dependencies+=("$swiftpm_dir/artifacts/sparkle/Sparkle")
+fi
+for dependency in "${dependencies[@]}"; do
+    for notice in "$dependency"/LICENSE* "$dependency"/COPYING* "$dependency"/NOTICE*; do
+        [[ -f "$notice" ]] || continue
+        folder="$notices/$(basename "$dependency")"
+        mkdir -p "$folder"
+        install -m 644 "$notice" "$folder/$(basename "$notice")"
+    done
+done
 
 if [[ -n "$feed_url" ]]; then
     plutil -insert SUFeedURL -string "$feed_url" "$contents/Info.plist"

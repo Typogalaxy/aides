@@ -11,8 +11,9 @@ if [[ ! -f "$1" || "${1##*/}" == *-development.dmg || -z "${AIDES_SPARKLE_PRIVAT
 fi
 
 repo="$(cd "$(dirname "$0")/../.." && pwd -P)"
+swiftpm_dir="${AIDES_PACKAGE_SWIFTPM_DIR:-$repo/.build}"
 archive="$(cd "$(dirname "$1")" && pwd -P)/$(basename "$1")"
-generate="$(find "$repo/.build/artifacts/sparkle" -type f -name generate_appcast -print -quit)"
+generate="$(find "$swiftpm_dir/artifacts/sparkle" -type f -name generate_appcast -print -quit)"
 [[ -x "$generate" ]] || { printf 'Sparkle generate_appcast was not built.\n' >&2; exit 1; }
 stage="$(mktemp -d "${TMPDIR:-/tmp}/aides-appcast.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
@@ -27,7 +28,7 @@ if ! grep -Fq "$url/download/$3/$(basename "$archive")" "$stage/appcast.xml"; th
     printf 'Generated feed does not reference the release archive.\n' >&2
     exit 1
 fi
-signer="$(find "$repo/.build/artifacts/sparkle" -type f -name sign_update -print -quit)"
+signer="$(find "$swiftpm_dir/artifacts/sparkle" -type f -name sign_update -print -quit)"
 [[ -x "$signer" ]]
 printf '%s\n' "$AIDES_SPARKLE_PRIVATE_KEY" | "$signer" --ed-key-file - --verify "$stage/appcast.xml"
 install -m 644 "$stage/appcast.xml" "$(dirname "$archive")/appcast.xml"
