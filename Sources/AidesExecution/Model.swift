@@ -95,7 +95,7 @@ public struct ModelOutput: Sendable {
     }
 }
 
-public enum ModelExecutionError: Error, Sendable, LocalizedError {
+public enum ModelExecutionError: Error, Sendable, LocalizedError, Equatable {
     case invalidConfiguration
     case unauthorized
     case rateLimited
