@@ -15,6 +15,7 @@ struct ChatView: View {
     @ViewState private var showsMemory = false
     @ViewState private var sourceMessage: Message?
     @ViewState private var toolkitResourceID: UUID?
+    @ViewState private var toolkitMailAccountID: String?
 
     private var memoryScope: String {
         if let projectID = conversation.projectID { return "project:\(projectID.uuidString.lowercased())" }
@@ -115,7 +116,10 @@ struct ChatView: View {
                 composer
             }
         }
-        .onChange(of: conversation.id) { _, _ in toolkitResourceID = nil }
+        .onChange(of: conversation.id) { _, _ in
+            toolkitResourceID = nil
+            toolkitMailAccountID = nil
+        }
         .sheet(isPresented: $showsTask) {
             NewTaskSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {
                 showWorker($0)
@@ -169,6 +173,13 @@ struct ChatView: View {
                                     )
                                     .padding(.leading, 39)
                                 }
+                                if let suggestion = message.toolkitMailSuggestion {
+                                    ToolkitMailSuggestionView(
+                                        workspace: workspace, requestID: message.id, suggestion: suggestion,
+                                        unavailable: conversation.archivedAt != nil
+                                    )
+                                    .padding(.leading, 39)
+                                }
                             }
                             .contextMenu {
                                     if message.isUser {
@@ -214,17 +225,33 @@ struct ChatView: View {
                         .labelsHidden()
                         .fixedSize()
                         .disabled(workspace.isWorking)
+                        .onChange(of: toolkitResourceID) { _, folder in
+                            if folder != nil { toolkitMailAccountID = nil }
+                        }
+                    }
+                    if workspace.state.settings.defaultModelID != nil {
+                        ToolkitMailAccountPicker(
+                            workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft…"
+                        )
+                        .disabled(workspace.isWorking)
+                        .onChange(of: toolkitMailAccountID) { _, account in
+                            if account != nil { toolkitResourceID = nil }
+                        }
                     }
                     Spacer()
                     Button {
                         let original = draft
                         let message = original.trimmed
-                        let resource = toolkitResourceID
+                        let mailAccount = toolkitMailAccountID
+                        let resource = mailAccount == nil ? toolkitResourceID : nil
                         let conversationID = conversation.id
                         Task {
-                            if await workspace.send(message, in: conversationID, toolkitResourceID: resource) {
+                            if await workspace.send(
+                                message, in: conversationID, toolkitResourceID: resource, toolkitMailAccountID: mailAccount
+                            ) {
                                 if draft == original { draft = "" }
                                 if toolkitResourceID == resource { toolkitResourceID = nil }
+                                if toolkitMailAccountID == mailAccount { toolkitMailAccountID = nil }
                             }
                         }
                     } label: {

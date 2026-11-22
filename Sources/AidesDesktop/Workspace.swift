@@ -215,12 +215,14 @@ final class Workspace {
         return created
     }
 
-    func send(_ message: String, in conversationID: UUID, toolkitResourceID: UUID? = nil) async -> Bool {
+    func send(
+        _ message: String, in conversationID: UUID, toolkitResourceID: UUID? = nil, toolkitMailAccountID: String? = nil
+    ) async -> Bool {
         var sent = false
         await perform {
             try await update(
                 ["threads", conversationID.uuidString, "messages"],
-                MessageRequest(text: message, toolkitResourceID: toolkitResourceID)
+                MessageRequest(text: message, toolkitResourceID: toolkitResourceID, toolkitMailAccountID: toolkitMailAccountID)
             )
             sent = true
         }
@@ -328,6 +330,14 @@ final class Workspace {
             await fileRelay.refresh()
         }
         return invocation
+    }
+
+    func prepareToolkitMail(suggestedBy id: UUID) async -> ToolkitMailDraft? {
+        var draft: ToolkitMailDraft?
+        await perform {
+            draft = try await toolkitPost(["mail", "suggestions", id.uuidString, "prepare"], body: EmptyRequest())
+        }
+        return draft
     }
 
     func toolkitGet<Response: Decodable & Sendable>(_ path: [String]) async throws -> Response {
@@ -441,6 +451,7 @@ private struct ArchiveRequest: Encodable { let report: String }
 private struct MessageRequest: Encodable {
     let text: String
     let toolkitResourceID: UUID?
+    let toolkitMailAccountID: String?
 }
 private struct ApplyCodeProposalRequest: Encodable { let path: String }
 private struct ProjectWatchRequest: Encodable { let enabled: Bool }
@@ -467,6 +478,7 @@ struct TaskRequest: Encodable {
     var toolkitResourceID: UUID? = nil
     var toolkitInvocationID: UUID? = nil
     var toolkitLocalSelection: ToolkitWorkerSelection? = nil
+    var toolkitMailAccountID: String? = nil
 }
 
 struct ToolkitWorkerSelection: Encodable {

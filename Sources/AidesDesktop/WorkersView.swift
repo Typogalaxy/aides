@@ -216,6 +216,13 @@ struct WorkerInspector: View {
                         )
                         .id(task.id)
                     }
+                    if let suggestion = task.toolkitMailSuggestion {
+                        ToolkitMailSuggestionView(
+                            workspace: workspace, requestID: task.id, suggestion: suggestion,
+                            unavailable: task.status != .completed
+                        )
+                        .id(task.id)
+                    }
                     if task.status == .waiting && task.kind != .review && task.kind != .retiredMail {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
                             .disabled(workspace.isWorking)
@@ -247,6 +254,7 @@ struct NewTaskSheet: View {
     @ViewState private var scheduledAt = Date.now.addingTimeInterval(3600)
     @ViewState private var sharedMemoryIDs: Set<UUID> = []
     @ViewState private var toolkitResourceID: UUID?
+    @ViewState private var toolkitMailAccountID: String?
     @ViewState private var toolkitInvocationID: UUID?
     @ViewState private var localActions: [ToolkitLocalAction] = []
     @ViewState private var localActionID: String?
@@ -338,6 +346,15 @@ struct NewTaskSheet: View {
                         ToolkitFolderPicker(
                             workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this run"
                         )
+                        .onChange(of: toolkitResourceID) { _, folder in
+                            if folder != nil { toolkitMailAccountID = nil }
+                        }
+                    }
+                    ToolkitMailAccountPicker(
+                        workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft account…"
+                    )
+                    .onChange(of: toolkitMailAccountID) { _, account in
+                        if account != nil { toolkitResourceID = nil }
                     }
                     if !localReceipts.isEmpty {
                         Picker("File result for local model", selection: $toolkitInvocationID) {
@@ -384,7 +401,7 @@ struct NewTaskSheet: View {
                             modelID: modelID,
                             scheduledAt: delayed ? scheduledAt : nil,
                             sharedMemoryIDs: usesCloud ? shareableMemories.filter { sharedMemoryIDs.contains($0.id) }.map(\.id) : nil,
-                            toolkitResourceID: model?.kind.isLocal == true ? toolkitResourceID : nil,
+                            toolkitResourceID: model?.kind.isLocal == true && toolkitMailAccountID == nil ? toolkitResourceID : nil,
                             toolkitInvocationID: model?.kind.isLocal == true && localAction == nil
                                 ? localReceipts.first { $0.id == toolkitInvocationID }?.id : nil,
                             toolkitLocalSelection: model?.kind.isLocal == true ? localAction.map { action in
@@ -393,7 +410,8 @@ struct NewTaskSheet: View {
                                     query: action.acceptsQuery && !localQuery.trimmed.isEmpty ? localQuery.trimmed : nil,
                                     path: action.acceptsPath && !localPath.trimmed.isEmpty ? localPath.trimmed : nil
                                 )
-                            } : nil
+                            } : nil,
+                            toolkitMailAccountID: model?.kind.isLocal == true ? toolkitMailAccountID : nil
                         )
                         if let id = await workspace.createTask(request) {
                             dismiss()
@@ -417,6 +435,7 @@ struct NewTaskSheet: View {
             sharedMemoryIDs = []
             if model?.kind.isLocal != true {
                 toolkitResourceID = nil
+                toolkitMailAccountID = nil
                 toolkitInvocationID = nil
                 localActionID = nil
                 localProjectID = nil
