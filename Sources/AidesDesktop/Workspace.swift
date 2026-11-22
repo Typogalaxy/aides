@@ -6,6 +6,8 @@ import Observation
 @Observable
 final class Workspace {
     let fileRelay = DeviceFileRelay()
+    let computerRelay = ComputerUseRelay()
+    let appshots = ComputerAppshotCapture()
     let toolkitNotifications = ToolkitDesktopNotifications()
     var state = AppState()
     var memories: [MemoryRecord] = []
@@ -107,6 +109,7 @@ final class Workspace {
         let initial: AppState = try await service.get(["state"])
         eventTask?.cancel()
         toolkitNotifications.stop()
+        appshots.stop()
         state = initial
         memories = []
         client = service
@@ -117,10 +120,13 @@ final class Workspace {
         connectionError = nil
         startEvents(using: service)
         fileRelay.start(service)
+        computerRelay.start(service)
     }
 
     func disconnect() {
         fileRelay.stop()
+        computerRelay.stop()
+        appshots.stop()
         toolkitNotifications.stop()
         eventTask?.cancel()
         eventTask = nil
@@ -216,13 +222,17 @@ final class Workspace {
     }
 
     func send(
-        _ message: String, in conversationID: UUID, toolkitResourceID: UUID? = nil, toolkitMailAccountID: String? = nil
+        _ message: String, in conversationID: UUID, toolkitResourceID: UUID? = nil, toolkitMailAccountID: String? = nil,
+        computerObservation: ComputerObservation? = nil
     ) async -> Bool {
         var sent = false
         await perform {
             try await update(
                 ["threads", conversationID.uuidString, "messages"],
-                MessageRequest(text: message, toolkitResourceID: toolkitResourceID, toolkitMailAccountID: toolkitMailAccountID)
+                MessageRequest(
+                    text: message, toolkitResourceID: toolkitResourceID, toolkitMailAccountID: toolkitMailAccountID,
+                    computerObservation: computerObservation
+                )
             )
             sent = true
         }
@@ -452,6 +462,7 @@ private struct MessageRequest: Encodable {
     let text: String
     let toolkitResourceID: UUID?
     let toolkitMailAccountID: String?
+    let computerObservation: ComputerObservation?
 }
 private struct ApplyCodeProposalRequest: Encodable { let path: String }
 private struct ProjectWatchRequest: Encodable { let enabled: Bool }

@@ -21,6 +21,15 @@ struct AidesDesktopApp: App {
         }
         .defaultSize(width: 1230, height: 800)
         .commands {
+            CommandMenu("Computer Use") {
+                Button("Pause Desktop Task") {
+                    if let run = workspace.computerRelay.activeLocalRun {
+                        Task { await workspace.computerRelay.control(run, .pause) }
+                    }
+                }
+                .keyboardShortcut(".", modifiers: [.command, .shift])
+                .disabled(workspace.computerRelay.activeLocalRun == nil)
+            }
             CommandGroup(after: .appInfo) {
                 if updates.isAvailable {
                     Button("Check for Updates…") { updates.check() }

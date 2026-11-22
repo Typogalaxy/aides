@@ -99,6 +99,13 @@ struct WorkspaceView: View {
             conversationID = workspace.state.threads.first { $0.role == .secretary }?.id ?? ids.first
         }
         .onChange(of: page) { _, _ in inspectorTaskID = nil }
+        .onChange(of: workspace.appshots.draft?.id) { _, id in
+            guard id != nil else { return }
+            page = .conversations
+            if workspace.state.threads.first(where: { $0.id == conversationID })?.archivedAt != nil {
+                conversationID = workspace.state.threads.first { $0.role == .secretary }?.id
+            }
+        }
     }
 
     private var inspectorTask: WorkItem? {
@@ -157,6 +164,18 @@ struct WorkspaceView: View {
                     page = .settings
                     toolkitPane = .files
                     settingsPane = .toolkit
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if workspace.computerRelay.hasLocalReview {
+                Button("Review desktop task", action: showComputerUse)
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let run = workspace.computerRelay.activeLocalRun {
+                Button("Pause desktop task") {
+                    Task { await workspace.computerRelay.control(run, .pause) }
                 }
                 .buttonStyle(.bordered)
             }
@@ -221,7 +240,8 @@ struct WorkspaceView: View {
                         get: { drafts[current.id, default: ""] },
                         set: { drafts[current.id] = $0 }
                     ),
-                    showWorker: { inspectorTaskID = $0 }
+                    showWorker: { inspectorTaskID = $0 },
+                    showComputerUse: showComputerUse
                 )
                 .id(current.id)
             } else {
@@ -233,6 +253,12 @@ struct WorkspaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private func showComputerUse() {
+        page = .settings
+        toolkitPane = .computer
+        settingsPane = .toolkit
     }
 
     private var conversationList: some View {

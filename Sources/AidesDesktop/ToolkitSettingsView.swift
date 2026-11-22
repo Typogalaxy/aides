@@ -8,7 +8,7 @@ enum ToolkitPane: String, CaseIterable {
     case commands = "Commands"
     case native = "Calendar & contacts"
     case notifications = "Notifications"
-    case computer = "Desktop"
+    case computer = "Computer Use"
     case github = "GitHub"
     case audit = "Audit"
 }
@@ -36,7 +36,7 @@ struct ToolkitSettingsView: View {
             case .commands: ToolkitCommandsView(workspace: workspace)
             case .native: ToolkitNativeResourcesView()
             case .notifications: ToolkitNotificationsView(notifications: workspace.toolkitNotifications)
-            case .computer: ToolkitComputerView()
+            case .computer: ComputerUseView(workspace: workspace)
             case .github: ToolkitGitHubView(workspace: workspace)
             case .audit: ToolkitAuditView(workspace: workspace)
             }

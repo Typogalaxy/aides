@@ -6,8 +6,11 @@ struct ChatView: View {
     let conversation: Conversation
     @Binding var draft: String
     let showWorker: (UUID) -> Void
+    let showComputerUse: () -> Void
 
     @ViewState private var showsTask = false
+    @ViewState private var showsComputerUse = false
+    @ViewState private var showsAppshot = false
     @ViewState private var proposalProject: Project?
     @ViewState private var showsReview = false
     @ViewState private var showsArchive = false
@@ -25,6 +28,10 @@ struct ChatView: View {
 
     private var tasks: [WorkItem] {
         workspace.state.tasks.filter { $0.threadID == conversation.id }
+    }
+
+    private var desktopTasks: [ComputerRun] {
+        workspace.computerRelay.runs.filter { $0.threadID == conversation.id && !$0.status.isTerminal }
     }
 
     var body: some View {
@@ -64,6 +71,10 @@ struct ChatView: View {
                         showsMemory = true
                     }
                     Button("Reply preferences…") { showsPreference = true }
+                    if conversation.archivedAt == nil {
+                        Button("Computer Use…") { showsComputerUse = true }
+                            .disabled(workspace.computerRelay.isUnavailable)
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -75,7 +86,7 @@ struct ChatView: View {
             .padding(.vertical, 13)
             Divider()
 
-            if !tasks.isEmpty {
+            if !tasks.isEmpty || !desktopTasks.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(tasks.reversed()) { task in
@@ -90,6 +101,14 @@ struct ChatView: View {
                                 .padding(.horizontal, 3)
                             }
                             .help(task.statusLabel)
+                        }
+                        ForEach(desktopTasks, id: \.id) { run in
+                            Button(action: showComputerUse) {
+                                Label(run.status.displayName, systemImage: "macwindow")
+                                    .font(.caption)
+                                    .padding(.horizontal, 3)
+                            }
+                            .help(run.instruction)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -124,6 +143,14 @@ struct ChatView: View {
             NewTaskSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {
                 showWorker($0)
             }
+        }
+        .sheet(isPresented: $showsAppshot) {
+            if let appshot = workspace.appshots.draft {
+                ComputerAppshotPreview(appshot: appshot)
+            }
+        }
+        .sheet(isPresented: $showsComputerUse) {
+            NewComputerUseSheet(workspace: workspace, instruction: draft, threadID: conversation.id)
         }
         .sheet(item: $proposalProject) { project in
             NewCodeProposalSheet(workspace: workspace, project: project, threadID: conversation.id, onCreated: showWorker)
@@ -211,6 +238,19 @@ struct ChatView: View {
         VStack(spacing: 0) {
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
+                if let appshot = workspace.appshots.draft {
+                    HStack {
+                        Button { showsAppshot = true } label: {
+                            Label("Review current window", systemImage: "macwindow")
+                        }
+                        Text("Local model only").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Remove") { workspace.appshots.remove(appshot.id) }
+                    }
+                }
+                if let error = workspace.appshots.error {
+                    Text(error).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
+                }
                 TextField("Message \(conversation.title)…", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(2...7)
@@ -218,7 +258,7 @@ struct ChatView: View {
                     .padding(11)
                     .background(.quaternary.opacity(0.29), in: .rect(cornerRadius: 10))
                 HStack {
-                    if !workspace.fileRelay.manifest.grants.isEmpty {
+                    if workspace.appshots.draft == nil && !workspace.fileRelay.manifest.grants.isEmpty {
                         ToolkitFolderPicker(
                             workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this message"
                         )
@@ -229,7 +269,7 @@ struct ChatView: View {
                             if folder != nil { toolkitMailAccountID = nil }
                         }
                     }
-                    if workspace.state.settings.defaultModelID != nil {
+                    if workspace.appshots.draft == nil && workspace.state.settings.defaultModelID != nil {
                         ToolkitMailAccountPicker(
                             workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft…"
                         )
@@ -242,13 +282,16 @@ struct ChatView: View {
                     Button {
                         let original = draft
                         let message = original.trimmed
-                        let mailAccount = toolkitMailAccountID
-                        let resource = mailAccount == nil ? toolkitResourceID : nil
+                        let appshot = workspace.appshots.draft
+                        let mailAccount = appshot == nil ? toolkitMailAccountID : nil
+                        let resource = appshot == nil && mailAccount == nil ? toolkitResourceID : nil
                         let conversationID = conversation.id
                         Task {
                             if await workspace.send(
-                                message, in: conversationID, toolkitResourceID: resource, toolkitMailAccountID: mailAccount
+                                message, in: conversationID, toolkitResourceID: resource, toolkitMailAccountID: mailAccount,
+                                computerObservation: appshot?.observation
                             ) {
+                                if let appshot { workspace.appshots.remove(appshot.id) }
                                 if draft == original { draft = "" }
                                 if toolkitResourceID == resource { toolkitResourceID = nil }
                                 if toolkitMailAccountID == mailAccount { toolkitMailAccountID = nil }
