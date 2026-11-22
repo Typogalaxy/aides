@@ -7,6 +7,8 @@ struct Host: Sendable {
     let directory: URL
     let bind: String
     let port: Int
+    let mailFrom: String?
+    let sendmailPath: String?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) throws {
         let appSupport = FileManager.default.homeDirectoryForCurrentUser
@@ -24,6 +26,15 @@ struct Host: Sendable {
             throw StorageError("Invalid server port")
         }
         self.port = port
+        if let path = environment["AIDES_SENDMAIL_PATH"], path.hasPrefix("/"),
+           FileManager.default.isExecutableFile(atPath: path),
+           let from = environment["AIDES_MAIL_FROM"], !from.isEmpty {
+            sendmailPath = path
+            mailFrom = from
+        } else {
+            sendmailPath = nil
+            mailFrom = nil
+        }
     }
 
     func createInvite() throws -> String {
