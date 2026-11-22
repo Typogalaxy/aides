@@ -155,7 +155,7 @@ public enum ProjectFiles {
         let extensions: Set<String> = [
             "pem", "key", "token", "cert", "cer", "crt", "p12", "pfx", "keychain", "keychain-db", "kdbx", "mobileprovision"
         ]
-        return denied.contains(name) || name.hasPrefix(".env.") || name.hasPrefix(".aides-") || name.hasPrefix("id_rsa") ||
+        return denied.contains(name) || name.hasSuffix(".oauth.json") || name.hasPrefix(".env.") || name.hasPrefix(".aides-") || name.hasPrefix("id_rsa") ||
             name.hasPrefix("id_ed25519") || name.hasPrefix("id_ecdsa") ||
             name.split(separator: ".").last.map { extensions.contains(String($0)) } == true
     }

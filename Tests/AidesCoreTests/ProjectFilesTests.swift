@@ -50,6 +50,7 @@ import Testing
     try Data("synthetic credentials".utf8).write(to: protected.appending(path: "config"))
     #expect(throws: (any Error).self) { try ProjectFiles.read(path: "config", in: protected) }
     #expect(throws: (any Error).self) { try ProjectFiles.list(path: ".", in: protected) }
+    #expect(throws: (any Error).self) { try ProjectFiles.validate(path: "mail-mailbox.oauth.json") }
 }
 
 @Test func replacingTextPreservesExtendedFileAttributes() throws {
@@ -65,4 +66,31 @@ import Testing
     var readBack = [UInt8](repeating: 0, count: marker.count)
     #expect(readBack.withUnsafeMutableBytes { getxattr(file.path, name, $0.baseAddress, $0.count, 0, 0) } == marker.count)
     #expect(readBack == marker)
+}
+
+@Test func replacingTextPreservesAnExplicitAccessControlList() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    let file = directory.appending(path: "file.txt")
+    try Data("old".utf8).write(to: file)
+
+    func setACL(_ arguments: [String]) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/chmod")
+        process.arguments = arguments + [file.path]
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    defer {
+        _ = try? setACL(["-N"])
+        try? FileManager.default.removeItem(at: directory)
+    }
+    try #require(setACL(["+a", "everyone deny delete"]) == 0)
+    try ProjectFiles.apply(path: "file.txt", expected: "old", replacement: "new", in: directory)
+    let acl = try #require(acl_get_file(file.path, ACL_TYPE_EXTENDED))
+    defer { acl_free(acl) }
+    var entry: acl_entry_t?
+    #expect(acl_get_entry(acl, ACL_FIRST_ENTRY, &entry) == 0)
 }
