@@ -34,6 +34,7 @@ extension AidesService {
                 .cancelled
             }
             state.app.tasks[index].updatedAt = now
+            if !approved { Self.reconcileReview(of: id, in: &state) }
         }
     }
 
@@ -55,6 +56,9 @@ extension AidesService {
                 state.app.tasks[index].status = .cancelled
                 state.app.tasks[index].approvedCloud = false
                 state.app.tasks[index].updatedAt = now
+            }
+            for cancelledID in indices.map({ state.app.tasks[$0].id }) {
+                Self.reconcileReview(of: cancelledID, in: &state)
             }
             state.revise()
             return (state.app, running)
@@ -276,5 +280,37 @@ extension AidesService {
             throw Abort(.conflict, reason: "The review is not awaiting its one clarification or closure.")
         }
         return (index, children)
+    }
+}
+
+extension AidesService {
+    static func reconcileReview(of childID: UUID, in state: inout ServerState) {
+        guard let immediateID = state.app.tasks.first(where: { $0.id == childID })?.parentID,
+              let immediate = state.app.tasks.first(where: { $0.id == immediateID }) else { return }
+        let reviewID = immediate.kind == .review ? immediate.id : immediate.parentID
+        guard let index = state.app.tasks.firstIndex(where: { $0.id == reviewID && $0.kind == .review }),
+              state.app.tasks[index].status == .waiting else { return }
+
+        let initial = state.app.tasks.filter { $0.parentID == reviewID }
+        guard !initial.isEmpty, initial.allSatisfy(\.status.isTerminal) else { return }
+        let initialIDs = Set(initial.map(\.id))
+        let followups = state.app.tasks.filter { $0.parentID.map(initialIDs.contains) == true }
+        guard followups.allSatisfy(\.status.isTerminal) else { return }
+
+        let initialReport = "Independent interpretations\n\n" + Self.reviewReport(initial)
+        if followups.isEmpty {
+            state.app.tasks[index].result = initialReport
+        } else {
+            let followupReport = "Follow-up interpretations\n\n" + Self.reviewReport(followups)
+            state.app.tasks[index].result = initialReport + "\n\n" + followupReport
+            state.app.tasks[index].status = .completed
+        }
+        state.app.tasks[index].updatedAt = .now
+    }
+
+    private static func reviewReport(_ children: [WorkItem]) -> String {
+        children.map { worker in
+            "\(worker.title) — \(worker.status.rawValue)\n\(worker.result ?? worker.error ?? "No report.")"
+        }.joined(separator: "\n\n")
     }
 }
