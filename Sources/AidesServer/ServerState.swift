@@ -7,6 +7,7 @@ struct ServerState: Codable, Sendable {
     var memory: [MemoryRecord] = []
     var replyMessages: [UUID: UUID] = [:]
     var watchedProjects: [UUID: ProjectFileSnapshot]?
+    var proposals: [UUID: PendingCodeProposal]?
 
     mutating func revise() {
         app.revision += 1

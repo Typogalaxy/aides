@@ -62,6 +62,7 @@ actor JobRunner {
         defer { running = nil }
         do {
             let output: ModelOutput
+            var proposal: CodeProposalResult?
             if work.kind == .reminder {
                 output = ModelOutput(text: work.instruction, inputTokens: nil, outputTokens: nil)
             } else {
@@ -69,10 +70,19 @@ actor JobRunner {
                 guard let model = snapshot.app.models.first(where: { $0.id == work.modelID }) else {
                     throw StorageError("The pinned model is unavailable.")
                 }
-                output = try await generate(work, model: model, snapshot: snapshot)
+                if work.kind == .codeProposal {
+                    guard let pending = snapshot.proposals?[work.id] else {
+                        throw StorageError("The code proposal snapshot is missing.")
+                    }
+                    let prompt = try CodeProposal.prompt(for: pending.request)
+                    output = try await generate(work, model: model, snapshot: snapshot, codePrompt: prompt)
+                    proposal = try CodeProposal.parse(output.text, for: pending.request)
+                } else {
+                    output = try await generate(work, model: model, snapshot: snapshot)
+                }
             }
             if !Task.isCancelled {
-                try await finish(work, status: .completed, output: output)
+                try await finish(work, status: .completed, output: output, proposal: proposal)
             }
         } catch is CancellationError {
             // The submitting service records cancellation. A shutdown is reconciled on restart.
@@ -84,17 +94,20 @@ actor JobRunner {
         }
     }
 
-    private func generate(_ work: WorkItem, model: ModelProfile, snapshot: ServerState) async throws -> ModelOutput {
+    private func generate(
+        _ work: WorkItem, model: ModelProfile, snapshot: ServerState, codePrompt: String? = nil
+    ) async throws -> ModelOutput {
         guard model.kind.isLocal || work.approvedCloud else {
             throw StorageError("Cloud execution requires approval.")
         }
+        let input = codePrompt ?? work.instruction
         if !model.kind.isLocal {
-            try CloudBoundary.validate(work.instruction)
+            try CloudBoundary.validate(input)
         }
         if let provider = CodingReviewProvider(rawValue: model.kind.rawValue) {
             return try await CodingReviewClient().generate(.init(
                 provider: provider, executable: host.executable(for: model.kind), model: model.model,
-                approvedInput: work.instruction
+                approvedInput: input
             ))
         }
         let provider: ModelProvider = switch model.kind {
@@ -108,8 +121,8 @@ actor JobRunner {
         let key = model.kind.needsAPIKey ? try host.apiKey(for: model.id) : nil
 
         var system = "You are Aides. Be precise, label assumptions, and never claim an action has happened unless you have evidence."
-        var messages = [ModelMessage(role: .user, text: work.instruction)]
-        if model.kind.isLocal, let thread = snapshot.app.threads.first(where: { $0.id == work.threadID }) {
+        var messages = [ModelMessage(role: .user, text: input)]
+        if model.kind.isLocal, codePrompt == nil, let thread = snapshot.app.threads.first(where: { $0.id == work.threadID }) {
             let context = ContextBuilder.build(
                 for: thread, through: snapshot.replyMessages[work.id], question: work.instruction,
                 records: snapshot.memory, preference: snapshot.app.settings.preference
@@ -126,18 +139,24 @@ actor JobRunner {
         }
         return try await client.generate(.init(
             provider: provider, endpoint: endpoint, model: model.model, apiKey: key,
-            system: system, messages: messages, maxOutputTokens: 2_048
+            system: system, messages: messages, maxOutputTokens: codePrompt == nil ? 2_048 : 16_384
         ))
     }
 
-    private func finish(_ work: WorkItem, status: WorkStatus, output: ModelOutput? = nil, error: String? = nil) async throws {
+    private func finish(
+        _ work: WorkItem, status: WorkStatus, output: ModelOutput? = nil,
+        proposal: CodeProposalResult? = nil, error: String? = nil
+    ) async throws {
         try await store.update { state in
             guard let index = state.app.tasks.firstIndex(where: { $0.id == work.id }), state.app.tasks[index].status == .running else {
                 return
             }
             state.app.tasks[index].status = status
             state.app.tasks[index].updatedAt = .now
-            state.app.tasks[index].result = output?.text
+            state.app.tasks[index].result = proposal?.summary ?? output?.text
+            if let proposal {
+                state.proposals?[work.id]?.result = proposal
+            }
             state.app.tasks[index].error = error
             if let output {
                 if work.kind != .reminder {
