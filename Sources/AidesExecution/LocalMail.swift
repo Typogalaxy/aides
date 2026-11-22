@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct PlainTextMail: Sendable {
@@ -127,4 +128,117 @@ public enum LocalMailError: Error, Sendable, LocalizedError, Equatable {
         case .transportSignalled(let signal): "The mail transport stopped on signal \(signal). Check its queue before trying again."
         }
     }
+}
+
+/// Submits one explicitly authorized message through a host-configured sendmail-compatible executable.
+/// Every invocation is independent. A transport failure never triggers an automatic retry.
+public struct LocalMail: Sendable {
+    private let executable: URL
+    private let timeout: Duration
+
+    public init(executable: URL, timeout: Duration = .seconds(30)) throws {
+        let manager = FileManager.default
+        guard executable.isFileURL,
+              executable.path.hasPrefix("/"),
+              manager.isExecutableFile(atPath: executable.path),
+              (try? executable.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+              timeout > .zero, timeout <= .seconds(300) else {
+            throw LocalMailError.invalidTransport
+        }
+        self.executable = executable
+        self.timeout = timeout
+    }
+
+    public func send(_ message: PlainTextMail) async throws -> MailSubmission {
+        try Task.checkCancellation()
+        let manager = FileManager.default
+        let directory = manager.temporaryDirectory.appending(path: "aides-mail-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let messageFile = directory.appending(path: "message")
+        do {
+            try manager.createDirectory(
+                at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            throw LocalMailError.launchFailed
+        }
+        defer { try? manager.removeItem(at: directory) }
+
+        let input: FileHandle
+        do {
+            guard manager.createFile(
+                atPath: messageFile.path, contents: message.wireData(date: .now), attributes: [.posixPermissions: 0o600]
+            ) else { throw LocalMailError.launchFailed }
+            let handle = try FileHandle(forReadingFrom: messageFile)
+            // Once open, the child can read the data through stdin without a named spool file.
+            try manager.removeItem(at: messageFile)
+            input = handle
+        } catch {
+            throw LocalMailError.launchFailed
+        }
+        defer { try? input.close() }
+
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["-i", "-f", message.from, message.to]
+        process.currentDirectoryURL = directory
+        process.environment = [
+            "HOME": manager.homeDirectoryForCurrentUser.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": directory.path,
+            "LC_ALL": "C"
+        ]
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let exit = AsyncStream<MailExit>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        process.terminationHandler = { child in
+            exit.continuation.yield(MailExit(
+                status: child.terminationStatus, signalled: child.terminationReason == .uncaughtSignal
+            ))
+            exit.continuation.finish()
+        }
+
+        try Task.checkCancellation()
+        do {
+            try process.run()
+        } catch {
+            throw LocalMailError.launchFailed
+        }
+        return try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: MailSubmission.self) { group in
+                group.addTask {
+                    for await state in exit.stream {
+                        if state.signalled { throw LocalMailError.transportSignalled(state.status) }
+                        guard state.status == 0 else { throw LocalMailError.transportFailed(state.status) }
+                        return .acceptedByTransport
+                    }
+                    throw LocalMailError.interrupted
+                }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw LocalMailError.timedOut
+                }
+                defer { group.cancelAll() }
+                do {
+                    guard let result = try await group.next() else { throw LocalMailError.interrupted }
+                    return result
+                } catch {
+                    Self.stop(process)
+                    if Task.isCancelled { throw LocalMailError.interrupted }
+                    throw error
+                }
+            }
+        } onCancel: {
+            Self.stop(process)
+        }
+    }
+
+    private static func stop(_ process: Process) {
+        if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
+    }
+}
+
+private struct MailExit: Sendable {
+    let status: Int32
+    let signalled: Bool
 }
