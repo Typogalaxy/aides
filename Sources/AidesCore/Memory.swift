@@ -91,7 +91,20 @@ public enum ContextBuilder {
     }
 
     private static func words(_ input: String) -> [String] {
-        input.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        input.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).flatMap { part in
+            let characters = Array(part)
+            var terms = [String(part)]
+            for (first, second) in zip(characters, characters.dropFirst()) where isHan(first) && isHan(second) {
+                terms.append(String([first, second]))
+            }
+            return terms
+        }
+    }
+
+    private static func isHan(_ character: Character) -> Bool {
+        character.unicodeScalars.contains {
+            (0x3400...0x9FFF).contains($0.value) || (0x20000...0x323AF).contains($0.value)
+        }
     }
 
     private static func score(_ terms: Set<String>, in text: String, query: String) -> Int {

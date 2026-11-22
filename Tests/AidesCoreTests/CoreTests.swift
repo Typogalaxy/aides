@@ -35,3 +35,16 @@ import Testing
     #expect(!excerpt.notes.contains("PRIVATE_OTHER_PROJECT"))
     #expect(excerpt.recentMessages.last?.text == "What was the scheduler decision?")
 }
+
+@Test func retrievesChineseFactsWithDifferentWording() {
+    let conversation = Conversation(title: "秘书", role: .secretary)
+    let records = [
+        MemoryRecord(key: "服务器配置", value: "机器是 Mac Studio M5 Max", source: "用户确认"),
+        MemoryRecord(key: "健身习惯", value: "每周两次", source: "用户确认")
+    ]
+    let context = ContextBuilder.build(
+        for: conversation, through: nil, question: "我现在的服务器是哪台？", records: records, preference: ""
+    )
+    #expect(context.notes.contains("Mac Studio M5 Max"))
+    #expect(!context.notes.contains("每周两次"))
+}
