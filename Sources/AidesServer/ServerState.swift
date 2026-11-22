@@ -10,6 +10,8 @@ struct ServerState: Codable, Sendable {
     var proposals: [UUID: PendingCodeProposal]?
     var deviceFiles: DeviceFileState?
     var toolkitCommandRuns: [UUID: ToolkitCommandRun]?
+    var toolkitMailDrafts: [UUID: ToolkitMailDraft]?
+    var toolkitMailRetiredDraftIDs: Set<UUID>?
     var acceptedScheduleSuggestions: [UUID: UUID]?
 
     mutating func revise() {

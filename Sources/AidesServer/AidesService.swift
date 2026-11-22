@@ -22,8 +22,10 @@ struct AidesService: Sendable {
         }
         let recoveringFileJobs = snapshot.deviceFiles?.jobs.contains { $0.status == .running } == true
         let recoveringCommands = snapshot.toolkitCommandRuns?.values.contains { $0.status.isActive } == true
-        if recoveringTasks || recoveringFileJobs || recoveringCommands {
+        let recoveringMail = snapshot.toolkitMailDrafts?.values.contains { $0.status == .sending } == true
+        if recoveringTasks || recoveringFileJobs || recoveringCommands || recoveringMail {
             try await store.update { state in
+                Self.interruptToolkitMailDispatches(in: &state)
                 state.deviceFiles?.interruptClaims(at: .now)
                 state.deviceFiles?.trimHistory()
                 if var runs = state.toolkitCommandRuns {

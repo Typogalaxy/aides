@@ -24,7 +24,7 @@ let package = Package(
     dependencies: dependencies,
     targets: [
         .target(name: "AidesCore"),
-        .target(name: "AidesExecution"),
+        .target(name: "AidesExecution", dependencies: ["AidesCore"]),
         .executableTarget(
             name: "AidesServer",
             dependencies: ["AidesCore", "AidesExecution", .product(name: "Vapor", package: "vapor")]

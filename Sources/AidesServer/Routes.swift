@@ -119,6 +119,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
         return try await json(service.closeReview(id(request)))
     }
     let toolkit = api.grouped("toolkit")
+    registerToolkitMailRoutes(toolkit, service: service)
     registerToolkitLocalRoutes(toolkit, service: service)
     registerToolkitCommandRoutes(toolkit, service: service)
     toolkit.post("suggestions", ":id", "accept") { request in
