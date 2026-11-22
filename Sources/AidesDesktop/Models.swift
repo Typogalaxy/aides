@@ -97,8 +97,8 @@ enum ModelKind: String, CaseIterable, Identifiable, Sendable {
     var suggestedEndpoint: String {
         switch self {
         case .ollama: "http://127.0.0.1:11434"
-        case .openAI: "https://api.openai.com"
-        case .claude: "https://api.anthropic.com"
+        case .openAI: "https://api.openai.com/v1"
+        case .claude: "https://api.anthropic.com/v1"
         case .codex: "codex"
         case .claudeCode: "claude"
         case .mock: ""

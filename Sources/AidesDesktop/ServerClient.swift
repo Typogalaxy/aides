@@ -60,7 +60,7 @@ struct AccountCredential: Codable, Sendable {
     let deviceID: UUID
 }
 
-private struct ErrorResponse: Decodable {
+private struct ErrorResponse: Decodable & Sendable {
     let error: String?
     let reason: String?
 }
@@ -91,13 +91,13 @@ struct ServerClient: Sendable {
     let endpoint: ServerEndpoint
     var credential: AccountCredential? = nil
 
-    func get<Response: Decodable>(
+    func get<Response: Decodable & Sendable>(
         _ route: [String], query: [URLQueryItem] = []
     ) async throws -> Response {
         try await request("GET", route: route, query: query)
     }
 
-    func post<Body: Encodable, Response: Decodable>(
+    func post<Body: Encodable & Sendable, Response: Decodable & Sendable>(
         _ route: [String], body: Body
     ) async throws -> Response {
         let encoder = JSONEncoder()
@@ -105,11 +105,11 @@ struct ServerClient: Sendable {
         return try await request("POST", route: route, body: encoder.encode(body))
     }
 
-    func delete<Response: Decodable>(_ route: [String]) async throws -> Response {
+    func delete<Response: Decodable & Sendable>(_ route: [String]) async throws -> Response {
         try await request("DELETE", route: route)
     }
 
-    private func request<Response: Decodable>(
+    private func request<Response: Decodable & Sendable>(
         _ method: String, route: [String], query: [URLQueryItem] = [], body: Data? = nil
     ) async throws -> Response {
         let url = (["api", "v1"] + route).reduce(endpoint.url) {
