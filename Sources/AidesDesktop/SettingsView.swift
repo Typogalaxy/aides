@@ -46,6 +46,8 @@ private struct ModelSettingsView: View {
     @ViewState private var preference = ""
     @ViewState private var loadedPreference = ""
     @ViewState private var loadedModelID: UUID?
+    @ViewState private var reviewModelID: UUID?
+    @ViewState private var loadedReviewModelID: UUID?
     @ViewState private var showsModel = false
 
     var body: some View {
@@ -57,12 +59,28 @@ private struct ModelSettingsView: View {
                         Text(model.name).tag(Optional(model.id))
                     }
                 }
+                Picker("Local review model", selection: $reviewModelID) {
+                    Text("None").tag(UUID?.none)
+                    ForEach(workspace.state.models.filter { $0.kind == .ollama }) { model in
+                        Text(model.name).tag(Optional(model.id))
+                    }
+                }
+                .help("Review cloud requests and proposed file changes using a local model.")
                 TextField("Global reply preference", text: $preference, axis: .vertical)
                     .lineLimit(3...6)
                 Button("Save defaults") {
-                    Task { await workspace.saveSettings(modelID: selection, preference: preference.trimmed) }
+                    Task {
+                        let reviewerChanged = reviewModelID != loadedReviewModelID
+                        await workspace.saveSettings(
+                            modelID: selection, preference: preference.trimmed,
+                            reviewModelID: reviewerChanged ? reviewModelID : nil,
+                            clearReviewModel: reviewerChanged && reviewModelID == nil
+                        )
+                    }
                 }
-                .disabled(workspace.isWorking || (preference == loadedPreference && selection == loadedModelID))
+                .disabled(workspace.isWorking || (
+                    preference == loadedPreference && selection == loadedModelID && reviewModelID == loadedReviewModelID
+                ))
             }
             Section("Available models") {
                 ForEach(workspace.state.models) { model in
@@ -93,6 +111,10 @@ private struct ModelSettingsView: View {
         .onChange(of: workspace.state.settings.defaultModelID, initial: true) { _, value in
             if selection == loadedModelID { selection = value }
             loadedModelID = value
+        }
+        .onChange(of: workspace.state.settings.reviewModelID, initial: true) { _, value in
+            if reviewModelID == loadedReviewModelID { reviewModelID = value }
+            loadedReviewModelID = value
         }
         .sheet(isPresented: $showsModel) {
             AddModelSheet(workspace: workspace)

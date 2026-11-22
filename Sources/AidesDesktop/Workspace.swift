@@ -323,8 +323,14 @@ final class Workspace {
         await perform { try await update(["tasks", taskID.uuidString, "approve"], ApprovalRequest(approved: approved)) }
     }
 
-    func saveSettings(modelID: UUID?, preference: String) async {
-        await perform { try await update(["settings"], SettingsRequest(defaultModelID: modelID, preference: preference)) }
+    func saveSettings(modelID: UUID?, preference: String, reviewModelID: UUID?, clearReviewModel: Bool) async {
+        await perform {
+            let input = SettingsRequest(
+                defaultModelID: modelID, preference: preference,
+                reviewModelID: reviewModelID, clearReviewModel: clearReviewModel
+            )
+            try await update(["settings"], input)
+        }
     }
 
     func addModel(_ request: ModelRequest) async -> Bool {
@@ -387,7 +393,12 @@ private struct ProjectWatchRequest: Encodable { let enabled: Bool }
 private struct ProjectRequest: Encodable { let name: String; let directory: String? }
 private struct PauseRequest: Encodable { let paused: Bool }
 private struct ApprovalRequest: Encodable { let approved: Bool }
-private struct SettingsRequest: Encodable { let defaultModelID: UUID?; let preference: String }
+private struct SettingsRequest: Encodable {
+    let defaultModelID: UUID?
+    let preference: String
+    let reviewModelID: UUID?
+    let clearReviewModel: Bool
+}
 
 struct TaskRequest: Encodable {
     let title: String
