@@ -12,6 +12,13 @@ service owns its own lifecycle. Closing or updating the desktop app does not
 stop server tasks. After updating the host Mac, restart the background service
 once active work reaches a safe stopping point so it loads the new executable.
 
+## App icon
+
+The editable artwork is `Resources/AppIcon.svg` and the multi-size macOS
+asset is `Resources/AppIcon.icns`. Packaging copies the ICNS into
+`Aides.app/Contents/Resources`. macOS locates it through the
+`CFBundleIconFile` key in the app bundle's `Info.plist`.
+
 ## Optional cloud coding tools on the server Mac
 
 Sign in to your installed official tool using its own sign-in flow. If the

@@ -44,6 +44,7 @@ plutil -insert CFBundleShortVersionString -string "$version" "$contents/Info.pli
 plutil -insert CFBundleVersion -string "$build_number" "$contents/Info.plist"
 install -m 755 "$bin_dir/AidesDesktop" "$contents/MacOS/AidesDesktop"
 install -m 755 "$bin_dir/AidesServer" "$contents/Helpers/AidesServer"
+install -m 644 "$script_dir/Resources/AppIcon.icns" "$contents/Resources/AppIcon.icns"
 install -m 755 "$script_dir/aides-service" "$contents/Resources/aides-service"
 for executable in "$contents/MacOS/AidesDesktop" "$contents/Helpers/AidesServer"; do
     if ! otool -l "$executable" | awk '$1 == "path" && $2 == "@executable_path/../Frameworks" { found=1 } END { exit !found }'; then

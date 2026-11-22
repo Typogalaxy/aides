@@ -8,6 +8,8 @@
     <string>Aides</string>
     <key>CFBundleExecutable</key>
     <string>AidesDesktop</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon.icns</string>
     <key>CFBundleIdentifier</key>
     <string>org.typogalaxy.aides</string>
     <key>CFBundleName</key>
