@@ -18,6 +18,15 @@ func configureRoutes(_ app: Application, service: AidesService) {
         let device = try await service.authenticatedDevice(request)
         return try await json(service.state(after: request.query[Int.self, at: "after"], deviceID: device))
     }
+    api.get("reply-preview") { request in
+        _ = try await service.authenticatedDevice(request)
+        let update = try await service.jobs.replyPreview(
+            after: request.query[UUID.self, at: "after"],
+            byteCount: request.query[Int.self, at: "bytes"] ?? 0
+        )
+        _ = try await service.authenticatedDevice(request)
+        return try json(update)
+    }
     api.post("pair", "invites") { request in
         _ = try await service.authenticatedDevice(request)
         return try json(InviteResult(code: service.host.createInvite()))

@@ -21,6 +21,8 @@ struct ChatView: View {
     @ViewState private var sourceMessage: Message?
     @ViewState private var toolkitResourceID: UUID?
     @ViewState private var toolkitMailAccountID: String?
+    @ViewState private var followsLatestReply = true
+    @ViewState private var isScrollingManually = false
 
     private var memoryScope: String {
         if let projectID = conversation.projectID { return "project:\(projectID.uuidString.lowercased())" }
@@ -152,9 +154,22 @@ struct ChatView: View {
     }
 
     private var timeline: some View {
-        ScrollViewReader { scroll in
+        let preview = workspace.replyPreview(for: conversation.id)
+        let hasPreview = preview.map { draft in
+            conversation.messages.contains { $0.id == draft.originMessageID } &&
+                !conversation.messages.contains { $0.id == draft.id }
+        } ?? false
+        let isWaiting = preview == nil && workspace.state.tasks.contains {
+            $0.threadID == conversation.id && $0.kind == .conversation && [.queued, .running].contains($0.status)
+        }
+        var messages = conversation.messages
+        if hasPreview, let preview {
+            messages.append(Message(preview.text, role: .assistant, id: preview.id))
+        }
+
+        return ScrollViewReader { scroll in
             ScrollView {
-                if conversation.messages.isEmpty {
+                if messages.isEmpty {
                     ContentUnavailableView(
                         "Start the conversation",
                         systemImage: conversation.icon,
@@ -162,37 +177,16 @@ struct ChatView: View {
                     )
                     .frame(minHeight: 180)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 44) {
-                        ForEach(conversation.messages) { message in
-                            VStack(alignment: .leading, spacing: 12) {
-                                ChatMessageView(message: message)
-                                if let suggestion = message.scheduleSuggestion {
-                                    ScheduleSuggestionView(
-                                        workspace: workspace, conversation: conversation,
-                                        message: message, suggestion: suggestion
-                                    )
-                                }
-                                if let suggestion = message.toolkitSuggestion {
-                                    ToolkitSuggestionView(
-                                        workspace: workspace, requestID: message.id, suggestion: suggestion,
-                                        unavailable: conversation.archivedAt != nil
-                                    )
-                                }
-                                if let suggestion = message.toolkitMailSuggestion {
-                                    ToolkitMailSuggestionView(
-                                        workspace: workspace, requestID: message.id, suggestion: suggestion,
-                                        unavailable: conversation.archivedAt != nil
-                                    )
-                                }
+                    VStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 44) {
+                            ForEach(messages) { message in
+                                messageRow(message, isPreview: hasPreview && message.id == preview?.id)
                             }
-                            .contextMenu {
-                                    if message.isUser {
-                                        Button("Remember this message…") {
-                                            sourceMessage = message
-                                            showsMemory = true
-                                        }
-                                    }
-                                }
+                            if isWaiting {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .accessibilityLabel("Waiting for a reply")
+                            }
                         }
                         Color.clear.frame(height: 1).id("conversation-end")
                     }
@@ -202,10 +196,61 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
-            .defaultScrollAnchor(.bottom)
-            .onChange(of: conversation.messages.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) {
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                Self.isNearEnd(geometry)
+            } action: { _, nearEnd in
+                if isScrollingManually { followsLatestReply = nearEnd }
+            }
+            .onScrollPhaseChange { _, phase, context in
+                switch phase {
+                case .tracking, .interacting, .decelerating:
+                    isScrollingManually = true
+                case .idle:
+                    if isScrollingManually { followsLatestReply = Self.isNearEnd(context.geometry) }
+                    isScrollingManually = false
+                default:
+                    break
+                }
+            }
+            .onChange(of: messages.last?.text) { _, _ in
+                if followsLatestReply, !isScrollingManually {
                     scroll.scrollTo("conversation-end", anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    private static func isNearEnd(_ geometry: ScrollGeometry) -> Bool {
+        geometry.contentSize.height - geometry.visibleRect.maxY < 44
+    }
+
+    private func messageRow(_ message: Message, isPreview: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ChatMessageView(message: message, isPreview: isPreview)
+            if let suggestion = message.scheduleSuggestion {
+                ScheduleSuggestionView(
+                    workspace: workspace, conversation: conversation, message: message, suggestion: suggestion
+                )
+            }
+            if let suggestion = message.toolkitSuggestion {
+                ToolkitSuggestionView(
+                    workspace: workspace, requestID: message.id, suggestion: suggestion,
+                    unavailable: conversation.archivedAt != nil
+                )
+            }
+            if let suggestion = message.toolkitMailSuggestion {
+                ToolkitMailSuggestionView(
+                    workspace: workspace, requestID: message.id, suggestion: suggestion,
+                    unavailable: conversation.archivedAt != nil
+                )
+            }
+        }
+        .contextMenu {
+            if message.isUser {
+                Button("Remember this message…") {
+                    sourceMessage = message
+                    showsMemory = true
                 }
             }
         }
@@ -299,6 +344,7 @@ struct ChatView: View {
 
 private struct ChatMessageView: View {
     let message: Message
+    let isPreview: Bool
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.desktopTypography) private var typography
@@ -332,7 +378,7 @@ private struct ChatMessageView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .help(message.createdAt.formatted(date: .abbreviated, time: .shortened))
+        .help(isPreview ? "Receiving a reply" : message.createdAt.formatted(date: .abbreviated, time: .shortened))
     }
 }
 

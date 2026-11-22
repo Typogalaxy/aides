@@ -2,27 +2,10 @@ import Foundation
 
 extension ModelClient {
     func generateOllama(_ request: ModelRequest, requiresJSONObject: Bool = false) async throws -> ModelOutput {
-        guard request.apiKey == nil else { throw ModelExecutionError.invalidConfiguration }
-        let endpoint = try request.modelEndpoint(route: "/api/chat", acceptedBases: ["", "/api"])
-        let name = request.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercase = name.lowercased()
-        guard !lowercase.hasSuffix(":cloud"), !lowercase.hasSuffix("-cloud") else {
-            throw ModelExecutionError.invalidConfiguration
-        }
-
-        // Current Ollama supports an explicit source suffix. Require local inference
-        // even when the model name happens to resolve to an upstream model alias.
-        let localName = lowercase.hasSuffix(":local") ? name : name + ":local"
-        var messages = request.messages.map(WireMessage.init)
-        if let system = request.system, !system.isEmpty {
-            messages.insert(WireMessage(role: "system", content: system), at: 0)
-        }
+        let (endpoint, payload) = try ollamaPOST(request, stream: false, requiresJSONObject: requiresJSONObject)
         let (response, networkBytes) = try await post(
             endpoint,
-            payload: OllamaInput(
-                model: localName, messages: messages, options: .init(numPredict: request.maxOutputTokens),
-                format: requiresJSONObject ? "json" : nil
-            ),
+            payload: payload,
             expecting: OllamaOutput.self
         )
 
@@ -40,6 +23,45 @@ extension ModelClient {
             networkBytes: networkBytes
         )
     }
+
+    func generateOllamaStream(
+        _ request: ModelRequest, onText: @escaping @Sendable (String) async -> Void
+    ) async throws -> ModelOutput {
+        let (endpoint, payload) = try ollamaPOST(request, stream: true, requiresJSONObject: false)
+        let http = try modelPOST(endpoint, payload: payload, headers: [:], accept: "application/x-ndjson")
+        let stream = OllamaStream()
+        let received = try await exchangeLines(http) { line in
+            let text = try await stream.receive(line)
+            if !text.isEmpty {
+                await onText(text)
+            }
+        }
+        return try await stream.finish(networkBytes: (http.httpBody?.count ?? 0) + received)
+    }
+
+    private func ollamaPOST(
+        _ request: ModelRequest, stream: Bool, requiresJSONObject: Bool
+    ) throws -> (URL, OllamaInput) {
+        guard request.apiKey == nil else { throw ModelExecutionError.invalidConfiguration }
+        let endpoint = try request.modelEndpoint(route: "/api/chat", acceptedBases: ["", "/api"])
+        let name = request.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercase = name.lowercased()
+        guard !lowercase.hasSuffix(":cloud"), !lowercase.hasSuffix("-cloud") else {
+            throw ModelExecutionError.invalidConfiguration
+        }
+
+        // Current Ollama supports an explicit source suffix. Require local inference
+        // even when the model name happens to resolve to an upstream model alias.
+        let localName = lowercase.hasSuffix(":local") ? name : name + ":local"
+        var messages = request.messages.map(WireMessage.init)
+        if let system = request.system, !system.isEmpty {
+            messages.insert(WireMessage(role: "system", content: system), at: 0)
+        }
+        return (endpoint, OllamaInput(
+            model: localName, messages: messages, stream: stream, options: .init(numPredict: request.maxOutputTokens),
+            format: requiresJSONObject ? "json" : nil
+        ))
+    }
 }
 
 private struct OllamaInput: Encodable {
@@ -53,7 +75,7 @@ private struct OllamaInput: Encodable {
 
     let model: String
     let messages: [WireMessage]
-    let stream = false
+    let stream: Bool
     let options: Options
     let format: String?
 }
@@ -79,5 +101,29 @@ private struct OllamaOutput: Decodable {
         case remoteHost = "remote_host"
         case inputTokens = "prompt_eval_count"
         case outputTokens = "eval_count"
+    }
+}
+
+private actor OllamaStream {
+    private var text = ""
+    private var terminal: OllamaOutput?
+
+    func receive(_ line: Data) throws -> String {
+        guard terminal == nil, let chunk = try? JSONDecoder().decode(OllamaOutput.self, from: line),
+              chunk.remoteModel == nil, chunk.remoteHost == nil, chunk.message.role == "assistant" else {
+            throw ModelExecutionError.unexpectedResponse
+        }
+        let delta = chunk.message.content
+        text += delta
+        if chunk.done { terminal = chunk }
+        return delta
+    }
+
+    func finish(networkBytes: Int) throws -> ModelOutput {
+        guard let terminal, !text.isEmpty else { throw ModelExecutionError.unexpectedResponse }
+        return ModelOutput(
+            text: text, inputTokens: terminal.inputTokens, outputTokens: terminal.outputTokens,
+            networkBytes: networkBytes
+        )
     }
 }

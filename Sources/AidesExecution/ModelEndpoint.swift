@@ -68,19 +68,25 @@ extension ModelClient {
         headers: [String: String] = [:],
         expecting: Response.Type
     ) async throws -> (Response, Int) {
+        let request = try modelPOST(endpoint, payload: payload, headers: headers)
+        let response = try await exchange(request)
+        try Task.checkCancellation()
+        let body = try ModelTransport.decode(expecting, from: response)
+        return (body, (request.httpBody?.count ?? 0) + response.body.count)
+    }
+
+    func modelPOST<Input: Encodable>(
+        _ endpoint: URL, payload: Input, headers: [String: String], accept: String = "application/json"
+    ) throws -> URLRequest {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
-        let requestBody = try JSONEncoder().encode(payload)
-        request.httpBody = requestBody
-        let response = try await exchange(request)
-        try Task.checkCancellation()
-        let body = try ModelTransport.decode(expecting, from: response)
-        return (body, requestBody.count + response.body.count)
+        request.httpBody = try JSONEncoder().encode(payload)
+        return request
     }
 }
