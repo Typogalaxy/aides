@@ -1,0 +1,62 @@
+name: Release macOS
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 45
+    environment: macos-release
+    permissions:
+      contents: write
+    env:
+      AIDES_ENABLE_SPARKLE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release tag
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Stable release tags must look like v1.2.3.' >&2
+            exit 1
+          fi
+          git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/$DEFAULT_BRANCH"
+      - name: Test and build release binaries
+        id: build
+        run: |
+          swift test
+          swift build -c release -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' --product AidesDesktop
+          swift build -c release -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' --product AidesServer
+          products="$(swift build -c release --show-bin-path)"
+          printf 'products=%s\n' "$products" >> "$GITHUB_OUTPUT"
+      - name: Sign, notarize and package
+        env:
+          PRODUCTS_DIR: ${{ steps.build.outputs.products }}
+          AIDES_DEVELOPER_ID_P12: ${{ secrets.AIDES_DEVELOPER_ID_P12 }}
+          AIDES_DEVELOPER_ID_PASSWORD: ${{ secrets.AIDES_DEVELOPER_ID_PASSWORD }}
+          AIDES_CODESIGN_IDENTITY: ${{ vars.AIDES_CODESIGN_IDENTITY }}
+          AIDES_NOTARY_P8: ${{ secrets.AIDES_NOTARY_P8 }}
+          AIDES_NOTARY_KEY_ID: ${{ vars.AIDES_NOTARY_KEY_ID }}
+          AIDES_NOTARY_ISSUER: ${{ vars.AIDES_NOTARY_ISSUER }}
+          AIDES_UPDATE_PUBLIC_KEY: ${{ vars.AIDES_UPDATE_PUBLIC_KEY }}
+          AIDES_SPARKLE_PRIVATE_KEY: ${{ secrets.AIDES_SPARKLE_PRIVATE_KEY }}
+        run: scripts/macos/release.sh "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" "$PRODUCTS_DIR"
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --latest \
+            dist/*.dmg dist/appcast.xml dist/SHA256SUMS.txt

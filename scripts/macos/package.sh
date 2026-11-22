@@ -29,11 +29,12 @@ output_dir="$(cd "$output_dir" && pwd -P)"
 stage="$(mktemp -d "$output_dir/.package.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 build_args=(-c release -Xlinker -rpath -Xlinker '@executable_path/../Frameworks')
-if [[ "${AIDES_SKIP_BUILD:-0}" != 1 ]]; then
+bin_dir="${AIDES_BUILD_PRODUCTS_DIR:-}"
+if [[ -z "$bin_dir" ]]; then
     swift build "${build_args[@]}" --product AidesDesktop
     swift build "${build_args[@]}" --product AidesServer
+    bin_dir="$(swift build "${build_args[@]}" --show-bin-path)"
 fi
-bin_dir="$(swift build "${build_args[@]}" --show-bin-path)"
 app="$stage/image/Aides.app"
 contents="$app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Helpers" "$contents/Resources"

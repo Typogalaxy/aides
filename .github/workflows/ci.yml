@@ -22,7 +22,9 @@ jobs:
           persist-credentials: false
       - name: Verify packaging scripts
         run: |
-          bash -n scripts/macos/{aides-service,package.sh,appcast.sh}
+          for script in scripts/macos/{aides-service,package.sh,appcast.sh,release.sh}; do
+            bash -n "$script"
+          done
           plutil -lint scripts/macos/Info.plist
       - name: Run package tests
         run: swift test
