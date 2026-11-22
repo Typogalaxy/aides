@@ -14,7 +14,9 @@ struct ToolkitCommandProfile: Decodable, Sendable {
     var summary: ToolkitCommand { ToolkitCommand(id: id, label: label, projectID: projectID) }
 
     static func configured() throws -> [Self] {
-        guard let raw = ProcessInfo.processInfo.environment["AIDES_TOOLKIT_COMMANDS"], !raw.isEmpty else { return [] }
+        let raw = try ToolkitHostConfiguration.read("commands.json")
+            ?? ProcessInfo.processInfo.environment["AIDES_TOOLKIT_COMMANDS"]
+        guard let raw, !raw.isEmpty else { return [] }
         guard raw.utf8.count <= 24_576,
               let values = try? AppJSON.decoder().decode([Self].self, from: Data(raw.utf8)),
               values.count <= 16, Set(values.map(\.id)).count == values.count,
