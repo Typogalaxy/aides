@@ -35,7 +35,7 @@ jobs:
           smoke_dir="$(mktemp -d "${RUNNER_TEMP}/aides-server-smoke.XXXXXX")"
           install -m 0755 "$binary" "$smoke_dir/AidesServer"
           codesign --force --sign - "$smoke_dir/AidesServer"
-          for fixture in server toolkit-commands toolkit-local toolkit-mail; do
+          for fixture in server toolkit-commands toolkit-local toolkit-mail toolkit-github; do
             python3 -u "scripts/test-${fixture}.py" "$smoke_dir/AidesServer"
           done
       - name: Build development DMG, including the updater
