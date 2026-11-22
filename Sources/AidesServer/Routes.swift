@@ -118,7 +118,8 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.closeReview(id(request)))
     }
-    let toolkit = api.grouped("toolkit")
+    let toolkit = api.grouped("toolkit").grouped(ToolkitAuditMiddleware(service: service))
+    registerToolkitAuditRoutes(toolkit, service: service)
     registerToolkitLocalRoutes(toolkit, service: service)
     registerToolkitCommandRoutes(toolkit, service: service)
     registerToolkitMailRoutes(toolkit, service: service)
