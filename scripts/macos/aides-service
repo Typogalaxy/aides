@@ -1,0 +1,63 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+
+contents="$(cd "$(dirname "$0")/.." && pwd -P)"
+server="$contents/Helpers/AidesServer"
+label=org.typogalaxy.aides.server
+domain="gui/$(id -u)"
+service="$domain/$label"
+data_dir="${AIDES_DATA_DIR:-$HOME/Library/Application Support/Aides}"
+port="${AIDES_PORT:-8317}"
+host="${AIDES_HOST:-127.0.0.1}"
+agents="$HOME/Library/LaunchAgents"
+configuration="$agents/$label.plist"
+log_dir="$data_dir/Logs"
+
+case "${1:-}" in
+    start)
+        [[ -x "$server" ]] || { printf 'AidesServer is missing from the app bundle.\n' >&2; exit 1; }
+        if launchctl print "$service" >/dev/null 2>&1; then
+            launchctl kickstart "$service"
+            exit
+        fi
+        mkdir -p "$agents" "$log_dir"
+        staged="$(mktemp "$agents/.$label.XXXXXX")"
+        trap 'rm -f "$staged"' EXIT
+        plutil -create xml1 "$staged"
+        plutil -insert Label -string "$label" "$staged"
+        plutil -insert ProgramArguments -json "[]" "$staged"
+        plutil -insert ProgramArguments.0 -string "$server" "$staged"
+        plutil -insert ProgramArguments.1 -string serve "$staged"
+        plutil -insert RunAtLoad -bool YES "$staged"
+        plutil -insert KeepAlive -bool YES "$staged"
+        plutil -insert ThrottleInterval -integer 10 "$staged"
+        plutil -insert StandardOutPath -string "$log_dir/server.log" "$staged"
+        plutil -insert StandardErrorPath -string "$log_dir/server-error.log" "$staged"
+        plutil -insert EnvironmentVariables -json '{}' "$staged"
+        plutil -insert EnvironmentVariables.AIDES_DATA_DIR -string "$data_dir" "$staged"
+        plutil -insert EnvironmentVariables.AIDES_HOST -string "$host" "$staged"
+        plutil -insert EnvironmentVariables.AIDES_PORT -string "$port" "$staged"
+        plutil -insert EnvironmentVariables.PATH -string "$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" "$staged"
+        mv "$staged" "$configuration"
+        launchctl enable "$service"
+        launchctl bootstrap "$domain" "$configuration"
+        ;;
+    stop)
+        launchctl disable "$service"
+        if launchctl print "$service" >/dev/null 2>&1; then
+            launchctl bootout "$service"
+        fi
+        ;;
+    status)
+        launchctl print "$service" 2>/dev/null
+        ;;
+    invite)
+        export AIDES_DATA_DIR="$data_dir"
+        exec "$server" invite
+        ;;
+    *)
+        printf 'Usage: aides-service {start|stop|status|invite}\n' >&2
+        exit 64
+        ;;
+esac
