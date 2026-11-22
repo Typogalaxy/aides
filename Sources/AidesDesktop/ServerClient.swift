@@ -105,15 +105,15 @@ struct ServerClient: Sendable {
     }
 
     func post<Body: Encodable & Sendable, Response: Decodable & Sendable>(
-        _ route: [String], body: Body
+        _ route: [String], body: Body, query: [URLQueryItem] = []
     ) async throws -> Response {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        return try await request("POST", route: route, body: encoder.encode(body))
+        return try await request("POST", route: route, query: query, body: encoder.encode(body))
     }
 
-    func delete<Response: Decodable & Sendable>(_ route: [String]) async throws -> Response {
-        try await request("DELETE", route: route)
+    func delete<Response: Decodable & Sendable>(_ route: [String], query: [URLQueryItem] = []) async throws -> Response {
+        try await request("DELETE", route: route, query: query)
     }
 
     private func request<Response: Decodable & Sendable>(

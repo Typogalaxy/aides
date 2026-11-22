@@ -12,6 +12,7 @@ struct DeviceFileGrant: Decodable, Identifiable, Sendable {
     let deviceID: UUID
     let name: String
     let allowMoves: Bool
+    let allowWrites: Bool?
     let createdAt: Date
 }
 
@@ -23,6 +24,8 @@ struct DeviceFileJob: Decodable, Identifiable, Sendable {
     let operation: FileOperation
     let path: String
     let destination: String?
+    let text: String?
+    let expectedText: String?
     let status: String
     let result: String?
     let error: String?
@@ -30,7 +33,9 @@ struct DeviceFileJob: Decodable, Identifiable, Sendable {
 }
 
 enum FileOperation: String, Codable, CaseIterable, Identifiable, Sendable {
-    case list, read, move
+    case list, read, move, create, replace
+
+    var writesText: Bool { self == .create || self == .replace }
 
     var id: Self { self }
 
@@ -39,6 +44,8 @@ enum FileOperation: String, Codable, CaseIterable, Identifiable, Sendable {
         case .list: .listDirectory
         case .read: .readTextFile
         case .move: .moveFile
+        case .create: .createTextFile
+        case .replace: .replaceTextFile
         }
     }
 
@@ -48,6 +55,7 @@ enum FileOperation: String, Codable, CaseIterable, Identifiable, Sendable {
 private struct NewGrant: Encodable, Sendable {
     let name: String
     let allowMoves: Bool
+    let allowWrites: Bool
 }
 
 struct FileJobRequest: Encodable, Equatable, Sendable {
@@ -55,6 +63,8 @@ struct FileJobRequest: Encodable, Equatable, Sendable {
     let operation: FileOperation
     let path: String
     let destination: String?
+    var text: String? = nil
+    var expectedText: String? = nil
 }
 
 private struct OldestFileJob: Decodable, Sendable {
@@ -71,6 +81,7 @@ private struct FileJobOutcome: Encodable, Sendable {
 @MainActor
 @Observable
 final class DeviceFileRelay {
+    private static let writesQuery = [URLQueryItem(name: "writes", value: "true")]
     private(set) var manifest = DeviceFileManifest()
     private(set) var pendingMove: DeviceFileJob?
     private(set) var isWorking = false
@@ -117,17 +128,17 @@ final class DeviceFileRelay {
         }
     }
 
-    func grantAccess(to folder: URL, displayName: String, allowMoves: Bool) async -> Bool {
+    func grantAccess(to folder: URL, displayName: String, allowMoves: Bool, allowWrites: Bool) async -> Bool {
         await perform { client, runID in
             let bookmark = try FolderBookmarks.bookmark(for: folder)
             let grant: DeviceFileGrant = try await client.post(
-                ["device-files", "grants"], body: NewGrant(name: displayName, allowMoves: allowMoves)
+                ["device-files", "grants"], body: NewGrant(name: displayName, allowMoves: allowMoves, allowWrites: allowWrites)
             )
             do {
                 try requireConnection(runID)
                 try FolderBookmarks.save(bookmark, for: grant.id)
             } catch {
-                let _: DeviceFileManifest? = try? await client.delete(["device-files", "grants", grant.id.uuidString])
+                let _: DeviceFileManifest? = try? await client.delete(["device-files", "grants", grant.id.uuidString], query: Self.writesQuery)
                 throw error
             }
             manifest.grants.append(grant)
@@ -136,7 +147,7 @@ final class DeviceFileRelay {
 
     func revoke(_ grant: DeviceFileGrant) async {
         _ = await perform { client, runID in
-            let changed: DeviceFileManifest = try await client.delete(["device-files", "grants", grant.id.uuidString])
+            let changed: DeviceFileManifest = try await client.delete(["device-files", "grants", grant.id.uuidString], query: Self.writesQuery)
             if grant.deviceID == client.credential?.deviceID {
                 try FolderBookmarks.delete(grant.id)
             }
@@ -149,8 +160,12 @@ final class DeviceFileRelay {
     func submit(_ request: FileJobRequest, invocationID: UUID) async -> Bool {
         await perform { client, runID in
             do {
-                let _: ToolkitCatalog = try await client.get(["toolkit", "catalog"])
+                let catalog: ToolkitCatalog = try await client.get(["toolkit", "catalog"], query: Self.writesQuery)
+                if request.operation.writesText && !catalog.tools.contains(where: { $0.id == request.operation.tool }) {
+                    throw RelayError.unsupportedWrite
+                }
             } catch ServerError.response(404, _) {
+                guard !request.operation.writesText else { throw RelayError.unsupportedWrite }
                 // Older servers only accept the device-file request format.
                 try requireConnection(runID)
                 let job: DeviceFileJob = try await client.post(["device-files", "jobs"], body: request)
@@ -163,7 +178,7 @@ final class DeviceFileRelay {
                 ["toolkit", "invocations"],
                 body: ToolkitInvocationRequest(
                     id: invocationID, tool: request.operation.tool, resourceID: request.grantID,
-                    path: request.path, destination: request.destination
+                    path: request.path, destination: request.destination, text: request.text, expectedText: request.expectedText
                 )
             )
             try requireConnection(runID)
@@ -176,7 +191,8 @@ final class DeviceFileRelay {
             if approved {
                 try await loadManifest(using: client, runID: runID)
                 guard pendingMove?.id == job.id,
-                      let grant = manifest.grants.first(where: { $0.id == job.grantID && $0.allowMoves }),
+                      let grant = manifest.grants.first(where: { $0.id == job.grantID }),
+                      (job.operation.writesText ? grant.allowWrites == true : grant.allowMoves),
                       grant.deviceID == client.credential?.deviceID,
                       manifest.jobs.first(where: { $0.id == job.id })?.status == "running" else {
                     pendingMove = nil
@@ -184,7 +200,7 @@ final class DeviceFileRelay {
                 }
                 pendingOutcome = (job.id, execute(job))
             } else {
-                pendingOutcome = (job.id, FileJobOutcome(error: "The target Mac declined the move."))
+                pendingOutcome = (job.id, FileJobOutcome(error: "The target Mac declined the file change."))
             }
             pendingMove = nil
         }
@@ -204,11 +220,13 @@ final class DeviceFileRelay {
             try await loadManifest(using: client, runID: runID)
             guard !isWorking, pendingMove == nil else { return .seconds(2) }
             guard manifest.grants.contains(where: { $0.deviceID == client.credential?.deviceID }) else { return .seconds(3) }
-            let response: OldestFileJob = try await client.post(["device-files", "jobs", "next"], body: ClaimRequest())
+            let response: OldestFileJob = try await client.post(
+                ["device-files", "jobs", "next"], body: ClaimRequest(), query: Self.writesQuery
+            )
             guard generation == runID else { return .seconds(2) }
             guard let job = response.job else { return .seconds(2) }
             update(job)
-            if job.operation == .move {
+            if job.operation.tool.descriptor.approval == .targetDevice {
                 pendingMove = job
             } else {
                 pendingOutcome = (job.id, execute(job))
@@ -222,7 +240,7 @@ final class DeviceFileRelay {
             // A restarted server may have marked an unfinished move interrupted. Never replay it.
             guard generation == runID else { return .seconds(2) }
             pendingOutcome = nil
-            error = "The server interrupted a file action. Check the source and destination before requesting it again."
+            error = "The server interrupted a file action. Check the affected path before requesting it again."
             return .seconds(2)
         } catch ServerError.response(404, _) {
             // A server from an earlier desktop build may not implement device-file routes.
@@ -233,7 +251,7 @@ final class DeviceFileRelay {
     }
 
     private func loadManifest(using client: ServerClient, runID: UUID) async throws {
-        let update: DeviceFileManifest = try await client.get(["device-files"])
+        let update: DeviceFileManifest = try await client.get(["device-files"], query: Self.writesQuery)
         try requireConnection(runID)
         manifest = update
         if let pendingMove, !manifest.jobs.contains(where: { $0.id == pendingMove.id && $0.status == "running" }) {
@@ -277,6 +295,12 @@ final class DeviceFileRelay {
                 guard let destination = job.destination else { throw RelayError.missingDestination }
                 try ProjectFiles.move(path: job.path, to: destination, in: folder)
                 result = "File moved."
+            case .create, .replace:
+                guard let text = job.text, (job.operation == .replace) == (job.expectedText != nil) else {
+                    throw RelayError.unsupportedWrite
+                }
+                try ProjectFiles.apply(path: job.path, expected: job.expectedText, replacement: text, in: folder)
+                result = job.operation == .create ? "File created." : "File updated."
             }
             guard result.utf8.count <= 16_384 else { throw RelayError.oversize }
             return FileJobOutcome(result: result)
@@ -333,7 +357,7 @@ private enum FolderBookmarks {
 }
 
 private enum RelayError: LocalizedError {
-    case missingFolder, unsafeFolder, missingDestination, missingFile, oversize, revoked
+    case missingFolder, unsafeFolder, missingDestination, missingFile, oversize, revoked, unsupportedWrite
 
     var errorDescription: String? {
         switch self {
@@ -342,7 +366,8 @@ private enum RelayError: LocalizedError {
         case .missingDestination: "A move needs a destination path."
         case .missingFile: "No file was found at that path."
         case .oversize: "The result exceeds 16 KiB. Choose a smaller file or subfolder."
-        case .revoked: "The file move is no longer authorized."
+        case .revoked: "The file change is no longer authorized."
+        case .unsupportedWrite: "This server or folder does not support the requested text change."
         }
     }
 }

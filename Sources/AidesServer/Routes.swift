@@ -119,21 +119,21 @@ func configureRoutes(_ app: Application, service: AidesService) {
         return try await json(service.closeReview(id(request)))
     }
     let toolkit = api.grouped("toolkit")
-    registerToolkitMailWatchRoutes(toolkit, service: service)
-    registerToolkitFeedRoutes(toolkit, service: service)
-    registerToolkitGitHubRoutes(toolkit, service: service)
-    registerToolkitMailRoutes(toolkit, service: service)
     registerToolkitLocalRoutes(toolkit, service: service)
     registerToolkitCommandRoutes(toolkit, service: service)
+    registerToolkitMailRoutes(toolkit, service: service)
+    registerToolkitGitHubRoutes(toolkit, service: service)
+    registerToolkitFeedRoutes(toolkit, service: service)
+    registerToolkitMailWatchRoutes(toolkit, service: service)
     toolkit.post("suggestions", ":id", "accept") { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.acceptToolkitSuggestion(id(request), deviceID: device))
     }
     toolkit.get("catalog") { request in
         let device = try await service.authenticatedDevice(request)
-        return try await json(service.toolkitCatalog(deviceID: device))
+        return try await json(service.toolkitCatalog(deviceID: device, acceptsWrites: request.query[Bool.self, at: "writes"] == true))
     }
-    toolkit.post("invocations") { request in
+    toolkit.on(.POST, "invocations", body: .collect(maxSize: "64kb")) { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.invokeToolkit(decode(ToolkitInvocationRequest.self, request), deviceID: device))
     }
@@ -143,7 +143,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     }
     api.get("device-files") { request in
         let device = try await service.authenticatedDevice(request)
-        return try await json(service.deviceFileManifest(deviceID: device))
+        return try await json(service.deviceFileManifest(deviceID: device, acceptsWrites: request.query[Bool.self, at: "writes"] == true))
     }
     api.post("device-files", "grants") { request in
         let device = try await service.authenticatedDevice(request)
@@ -151,7 +151,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     }
     api.delete("device-files", "grants", ":id") { request in
         let device = try await service.authenticatedDevice(request)
-        return try await json(service.revokeDeviceFileGrant(id(request), deviceID: device))
+        return try await json(service.revokeDeviceFileGrant(id(request), deviceID: device, acceptsWrites: request.query[Bool.self, at: "writes"] == true))
     }
     api.post("device-files", "jobs") { request in
         let device = try await service.authenticatedDevice(request)
@@ -159,7 +159,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     }
     api.post("device-files", "jobs", "next") { request in
         let device = try await service.authenticatedDevice(request)
-        return try await json(service.claimDeviceFileJob(deviceID: device))
+        return try await json(service.claimDeviceFileJob(deviceID: device, acceptsWrites: request.query[Bool.self, at: "writes"] == true))
     }
     api.post("device-files", "jobs", ":id", "finish") { request in
         let device = try await service.authenticatedDevice(request)

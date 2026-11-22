@@ -7,19 +7,23 @@ struct DeviceFileGrant: Codable, Identifiable, Sendable {
     let deviceID: UUID
     let name: String
     let allowMoves: Bool
+    let allowWrites: Bool?
     let createdAt: Date
 
-    init(deviceID: UUID, name: String, allowMoves: Bool) {
+    init(deviceID: UUID, name: String, allowMoves: Bool, allowWrites: Bool?) {
         id = UUID()
         createdAt = .now
         self.deviceID = deviceID
         self.name = name
         self.allowMoves = allowMoves
+        self.allowWrites = allowWrites
     }
 }
 
 enum DeviceFileOperation: String, Codable, Sendable {
-    case list, read, move
+    case list, read, move, create, replace
+
+    var writesText: Bool { self == .create || self == .replace }
 }
 
 typealias DeviceFileStatus = ToolkitInvocationStatus
@@ -33,24 +37,25 @@ struct DeviceFileJob: Codable, Identifiable, Sendable {
     let operation: DeviceFileOperation
     let path: String
     let destination: String?
+    let text: String?
+    let expectedText: String?
     var status: DeviceFileStatus
     var result: String?
     var error: String?
     let createdAt: Date
     var updatedAt: Date
 
-    init(
-        id: UUID, grant: DeviceFileGrant, requestedByDeviceID: UUID?, operation: DeviceFileOperation,
-        path: String, destination: String?, now: Date
-    ) {
+    init(id: UUID, grant: DeviceFileGrant, requestedByDeviceID: UUID?, input: NewDeviceFileJob, path: String, now: Date) {
         self.id = id
         self.requestedByDeviceID = requestedByDeviceID
         grantID = grant.id
         deviceID = grant.deviceID
         grantName = grant.name
-        self.operation = operation
+        operation = input.operation
         self.path = path
-        self.destination = destination
+        destination = input.destination
+        text = input.text
+        expectedText = input.expectedText
         status = .queued
         createdAt = now
         updatedAt = now
@@ -100,6 +105,7 @@ struct DeviceFileState: Codable, Sendable {
 struct NewDeviceFileGrant: Decodable, Sendable {
     let name: String
     let allowMoves: Bool?
+    let allowWrites: Bool?
 }
 
 struct NewDeviceFileJob: Decodable, Sendable {
@@ -107,6 +113,8 @@ struct NewDeviceFileJob: Decodable, Sendable {
     let operation: DeviceFileOperation
     let path: String
     let destination: String?
+    var text: String? = nil
+    var expectedText: String? = nil
 }
 
 struct FinishDeviceFileJob: Decodable, Sendable {
@@ -119,12 +127,13 @@ struct DeviceFileClaim: Encodable, Sendable {
 }
 
 extension AidesService {
-    func deviceFileManifest(deviceID: UUID) async throws -> DeviceFileState {
+    func deviceFileManifest(deviceID: UUID, acceptsWrites: Bool = true) async throws -> DeviceFileState {
         let state = await store.snapshot()
         try Self.requireDeviceFileAccess(deviceID, in: state)
         var files = state.deviceFiles ?? DeviceFileState()
         files.expireClaims(at: .now)
         files.trimHistory()
+        if !acceptsWrites { files.jobs.removeAll { $0.operation.writesText } }
         return files
     }
 
@@ -138,14 +147,16 @@ extension AidesService {
             guard deviceGrantCount < 16, files.grants.count < 128 else {
                 throw Abort(.conflict, reason: "Revoke an existing folder grant before adding another.")
             }
-            let grant = DeviceFileGrant(deviceID: deviceID, name: name, allowMoves: input.allowMoves ?? false)
+            let grant = DeviceFileGrant(
+                deviceID: deviceID, name: name, allowMoves: input.allowMoves ?? false, allowWrites: input.allowWrites
+            )
             files.grants.append(grant)
             return grant
         }
     }
 
-    func revokeDeviceFileGrant(_ id: UUID, deviceID: UUID) async throws -> DeviceFileState {
-        try await updateDeviceFiles(for: deviceID) { files, now in
+    func revokeDeviceFileGrant(_ id: UUID, deviceID: UUID, acceptsWrites: Bool = true) async throws -> DeviceFileState {
+        var manifest = try await updateDeviceFiles(for: deviceID) { files, now in
             guard files.grants.contains(where: { $0.id == id && $0.deviceID == deviceID }) else {
                 throw Abort(.notFound, reason: "Folder grant not found on this device.")
             }
@@ -153,6 +164,8 @@ extension AidesService {
             files.trimHistory()
             return files
         }
+        if !acceptsWrites { manifest.jobs.removeAll { $0.operation.writesText } }
+        return manifest
     }
 
     func createDeviceFileJob(
@@ -172,11 +185,21 @@ extension AidesService {
             throw Abort(.badRequest, reason: "Use relative paths within the granted folder.")
         }
 
+        if input.operation.writesText {
+            guard invocationID != nil, let text = input.text, Self.validToolkitFileText(text),
+                  (input.operation == .replace) == (input.expectedText != nil),
+                  input.expectedText.map(Self.validToolkitFileText) ?? true else {
+                throw Abort(.badRequest, reason: "Text writes require a new version and, for replacements, the expected text.")
+            }
+        } else if input.text != nil || input.expectedText != nil {
+            throw Abort(.badRequest, reason: "Only text writes accept file contents.")
+        }
         return try await updateDeviceFiles(for: deviceID, authorize: authorize) { files, now in
             if let invocationID {
                 if let job = files.jobs.first(where: { $0.id == invocationID }) {
                     guard job.requestedByDeviceID == deviceID, job.grantID == input.grantID,
-                          job.operation == input.operation, job.path == path, job.destination == input.destination else {
+                          job.operation == input.operation, job.path == path, job.destination == input.destination,
+                          job.text == input.text, job.expectedText == input.expectedText else {
                         throw Abort(.conflict, reason: "This invocation ID has already been used.")
                     }
                     return job
@@ -188,7 +211,7 @@ extension AidesService {
             guard let grant = files.grants.first(where: { $0.id == input.grantID }) else {
                 throw Abort(.notFound, reason: "Folder grant is unavailable.")
             }
-            if input.operation == .move && !grant.allowMoves {
+            if (input.operation == .move && !grant.allowMoves) || (input.operation.writesText && grant.allowWrites != true) {
                 throw Abort(.forbidden, reason: "This folder grant is read-only.")
             }
             guard files.jobs.lazy.filter({ $0.status.isActive }).count < 32 else {
@@ -196,14 +219,18 @@ extension AidesService {
             }
             let job = DeviceFileJob(
                 id: invocationID ?? UUID(), grant: grant, requestedByDeviceID: invocationID == nil ? nil : deviceID,
-                operation: input.operation, path: path, destination: input.destination, now: now
+                input: input, path: path, now: now
             )
             files.jobs.append(job)
             return job
         }
     }
 
-    func claimDeviceFileJob(deviceID: UUID) async throws -> DeviceFileClaim {
+    private static func validToolkitFileText(_ text: String) -> Bool {
+        text.utf8.count <= 4_096 && !text.utf8.contains(0)
+    }
+
+    func claimDeviceFileJob(deviceID: UUID, acceptsWrites: Bool = true) async throws -> DeviceFileClaim {
         let state = await store.snapshot()
         try Self.requireDeviceFileAccess(deviceID, in: state)
         guard state.deviceFiles?.jobs.contains(where: { $0.deviceID == deviceID && $0.status == .queued }) == true else {
@@ -211,7 +238,9 @@ extension AidesService {
         }
         return try await updateDeviceFiles(for: deviceID) { files, now in
             guard !files.jobs.contains(where: { $0.deviceID == deviceID && $0.status == .running }),
-                  let index = files.jobs.firstIndex(where: { $0.deviceID == deviceID && $0.status == .queued }),
+                  let index = files.jobs.firstIndex(where: {
+                      $0.deviceID == deviceID && $0.status == .queued && (acceptsWrites || !$0.operation.writesText)
+                  }),
                   files.grants.contains(where: { $0.id == files.jobs[index].grantID && $0.deviceID == deviceID }) else {
                 return DeviceFileClaim(job: nil)
             }

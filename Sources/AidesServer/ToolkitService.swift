@@ -3,15 +3,16 @@ import Foundation
 import Vapor
 
 extension AidesService {
-    func toolkitCatalog(deviceID: UUID) async throws -> ToolkitCatalog {
+    func toolkitCatalog(deviceID: UUID, acceptsWrites: Bool) async throws -> ToolkitCatalog {
         let files = try await deviceFileManifest(deviceID: deviceID)
         let resources = files.grants.map { grant in
-            ToolkitFolderResource(
-                id: grant.id, deviceID: grant.deviceID, name: grant.name,
-                tools: grant.allowMoves ? ToolkitTool.allCases : [.listDirectory, .readTextFile]
-            )
+            var tools: [ToolkitTool] = [.listDirectory, .readTextFile]
+            if grant.allowMoves { tools.append(.moveFile) }
+            if acceptsWrites && grant.allowWrites == true { tools += [.createTextFile, .replaceTextFile] }
+            return ToolkitFolderResource(id: grant.id, deviceID: grant.deviceID, name: grant.name, tools: tools)
         }
-        return ToolkitCatalog(tools: ToolkitTool.allCases.map(\.descriptor), resources: resources)
+        let tools = acceptsWrites ? ToolkitTool.allCases : [.listDirectory, .readTextFile, .moveFile]
+        return ToolkitCatalog(tools: tools.map(\.descriptor), resources: resources)
     }
 
     func invokeToolkit(
@@ -22,9 +23,14 @@ extension AidesService {
         case .listDirectory: .list
         case .readTextFile: .read
         case .moveFile: .move
+        case .createTextFile: .create
+        case .replaceTextFile: .replace
         }
         let job = try await createDeviceFileJob(
-            NewDeviceFileJob(grantID: input.resourceID, operation: operation, path: input.path, destination: input.destination),
+            NewDeviceFileJob(
+                grantID: input.resourceID, operation: operation, path: input.path, destination: input.destination,
+                text: input.text, expectedText: input.expectedText
+            ),
             deviceID: deviceID, invocationID: input.id, authorize: authorize
         )
         return job.toolkitInvocation
@@ -48,6 +54,8 @@ private extension DeviceFileJob {
         case .list: .listDirectory
         case .read: .readTextFile
         case .move: .moveFile
+        case .create: .createTextFile
+        case .replace: .replaceTextFile
         }
         return ToolkitInvocation(
             id: id, tool: tool, resourceID: grantID, deviceID: deviceID,

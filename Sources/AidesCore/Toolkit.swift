@@ -12,6 +12,8 @@ public enum ToolkitTool: String, Codable, CaseIterable, Sendable {
     case listDirectory = "files.list"
     case readTextFile = "files.read"
     case moveFile = "files.move"
+    case createTextFile = "files.create"
+    case replaceTextFile = "files.replace"
 
     public var descriptor: ToolkitToolDescriptor {
         switch self {
@@ -21,6 +23,10 @@ public enum ToolkitTool: String, Codable, CaseIterable, Sendable {
             ToolkitToolDescriptor(id: self, category: .files, title: "Read text file", approval: .grantedResource)
         case .moveFile:
             ToolkitToolDescriptor(id: self, category: .files, title: "Move file", approval: .targetDevice)
+        case .createTextFile:
+            ToolkitToolDescriptor(id: self, category: .files, title: "Create text file", approval: .targetDevice)
+        case .replaceTextFile:
+            ToolkitToolDescriptor(id: self, category: .files, title: "Replace text file", approval: .targetDevice)
         }
     }
 }
@@ -63,12 +69,20 @@ public struct ToolkitInvocationRequest: Codable, Sendable {
     public let path: String
     public let destination: String?
 
-    public init(id: UUID = UUID(), tool: ToolkitTool, resourceID: UUID, path: String, destination: String? = nil) {
+    public let text: String?
+    public let expectedText: String?
+
+    public init(
+        id: UUID = UUID(), tool: ToolkitTool, resourceID: UUID, path: String, destination: String? = nil,
+        text: String? = nil, expectedText: String? = nil
+    ) {
         self.id = id
         self.tool = tool
         self.resourceID = resourceID
         self.path = path
         self.destination = destination
+        self.text = text
+        self.expectedText = expectedText
     }
 }
 

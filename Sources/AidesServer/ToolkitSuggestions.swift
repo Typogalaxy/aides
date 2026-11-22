@@ -4,7 +4,7 @@ import Vapor
 
 enum ToolkitSuggestions {
     static func instructions(for folder: DeviceFileGrant) -> String {
-        let operations: [ToolkitTool] = folder.allowMoves ? ToolkitTool.allCases : [.listDirectory, .readTextFile]
+        let operations: [ToolkitTool] = folder.allowMoves ? [.listDirectory, .readTextFile, .moveFile] : [.listDirectory, .readTextFile]
         return """
         When the current request explicitly asks for a file operation, you may propose exactly one action.
         Propose only a relative path inside the one folder granted for this request.
@@ -16,7 +16,8 @@ enum ToolkitSuggestions {
     }
 
     static func validProposal(_ value: ToolkitSuggestion?, for folder: DeviceFileGrant?) -> ToolkitSuggestion? {
-        guard let value, let folder, value.resourceID == folder.id else { return nil }
+        guard let value, let folder, value.resourceID == folder.id,
+              value.tool != .createTextFile, value.tool != .replaceTextFile else { return nil }
         do {
             if value.tool != .listDirectory || !["", "."].contains(value.path) {
                 try ProjectFiles.validate(path: value.path)

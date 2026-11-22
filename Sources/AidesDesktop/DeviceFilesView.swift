@@ -13,7 +13,7 @@ struct DeviceFilesView: View {
     var body: some View {
         Form {
             if let request = relay.pendingMove {
-                Section("Move requested on this Mac") { pendingMove(request) }
+                Section("File change requested on this Mac") { pendingMove(request) }
             }
             if let error = relay.error {
                 Section {
@@ -31,7 +31,7 @@ struct DeviceFilesView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(grant.name).font(.body.weight(.medium))
-                            Text("\(deviceName(grant.deviceID)) · \(grant.allowMoves ? "Read and move" : "Read only")")
+                            Text("\(deviceName(grant.deviceID)) · \(accessLabel(grant))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -112,14 +112,34 @@ struct DeviceFilesView: View {
         return workspace.state.devices.first { $0.id == id }?.name ?? "Paired Mac"
     }
 
+    private func accessLabel(_ grant: DeviceFileGrant) -> String {
+        var labels = ["Read"]
+        if grant.allowMoves { labels.append("move") }
+        if grant.allowWrites == true { labels.append("write") }
+        return labels.joined(separator: " · ")
+    }
+
+    private func reviewText(_ label: String, _ text: String) -> some View {
+        DisclosureGroup(label) {
+            ScrollView {
+                Text(text.isEmpty ? "(Empty)" : text)
+                    .monospaced().textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 120)
+        }
+    }
+
     private func pendingMove(_ request: DeviceFileJob) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             LabeledContent("Folder", value: request.grantName)
-            LabeledContent("Source", value: request.path)
-            LabeledContent("Destination", value: request.destination ?? "")
+            LabeledContent("Path", value: request.path)
+            if let destination = request.destination { LabeledContent("Destination", value: destination) }
+            if let expected = request.expectedText { reviewText("Expected text", expected) }
+            if let text = request.text { reviewText("New text", text) }
             HStack {
                 Button("Decline") { Task { await relay.respondToMove(request.id, approved: false) } }
-                Button("Move file") { Task { await relay.respondToMove(request.id, approved: true) } }
+                Button(request.operation.title) { Task { await relay.respondToMove(request.id, approved: true) } }
                     .buttonStyle(.borderedProminent)
             }
             .disabled(relay.isWorking)
@@ -151,6 +171,7 @@ private struct ShareFolderSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ViewState private var name = ""
     @ViewState private var allowMoves = false
+    @ViewState private var allowWrites = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -159,8 +180,9 @@ private struct ShareFolderSheet: View {
             Form {
                 TextField("Name on other Macs", text: $name)
                 Toggle("Allow move requests", isOn: $allowMoves)
+                Toggle("Allow text write requests", isOn: $allowWrites)
             }
-            Text("Paired devices can list the directory or request text files. File moves require approval on this Mac. The folder’s local path stays on this Mac.")
+            Text("Paired devices can list the directory or request text files. File changes require approval on this Mac. The folder’s local path stays on this Mac.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let error = relay.error {
@@ -171,7 +193,9 @@ private struct ShareFolderSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Share folder") {
                     Task {
-                        if await relay.grantAccess(to: folder, displayName: name.trimmed, allowMoves: allowMoves) { dismiss() }
+                        if await relay.grantAccess(
+                            to: folder, displayName: name.trimmed, allowMoves: allowMoves, allowWrites: allowWrites
+                        ) { dismiss() }
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -192,15 +216,21 @@ private struct FileJobSheet: View {
     @ViewState private var operation = FileOperation.list
     @ViewState private var path = ""
     @ViewState private var destination = ""
+    @ViewState private var text = ""
+    @ViewState private var expectedText = ""
     @ViewState private var lastSubmission: (request: FileJobRequest, id: UUID)?
 
     private var operations: [FileOperation] {
-        grant.allowMoves ? FileOperation.allCases : [.list, .read]
+        var actions: [FileOperation] = [.list, .read]
+        if grant.allowMoves { actions.append(.move) }
+        if grant.allowWrites == true { actions += [.create, .replace] }
+        return actions
     }
 
     private var isValid: Bool {
         (operation == .list || !path.trimmed.isEmpty) &&
-            (operation != .move || (!destination.trimmed.isEmpty && path.trimmed != destination.trimmed))
+            (operation != .move || (!destination.trimmed.isEmpty && path.trimmed != destination.trimmed)) &&
+            (!operation.writesText || (text.utf8.count <= 4_096 && expectedText.utf8.count <= 4_096))
     }
 
     var body: some View {
@@ -215,6 +245,12 @@ private struct FileJobSheet: View {
                 if operation == .move {
                     TextField("Destination relative path", text: $destination)
                 }
+                if operation == .replace {
+                    TextField("Expected text", text: $expectedText, axis: .vertical).lineLimit(2...5)
+                }
+                if operation.writesText {
+                    TextField("New text", text: $text, axis: .vertical).lineLimit(2...5)
+                }
             }
             if let error = relay.error {
                 Text(error).font(.callout).foregroundStyle(.orange)
@@ -225,7 +261,9 @@ private struct FileJobSheet: View {
                 Button("Send request") {
                     let request = FileJobRequest(
                         grantID: grant.id, operation: operation, path: path.trimmed,
-                        destination: operation == .move ? destination.trimmed : nil
+                        destination: operation == .move ? destination.trimmed : nil,
+                        text: operation.writesText ? text : nil,
+                        expectedText: operation == .replace ? expectedText : nil
                     )
                     let invocationID = lastSubmission.flatMap { $0.request == request ? $0.id : nil } ?? UUID()
                     lastSubmission = (request, invocationID)

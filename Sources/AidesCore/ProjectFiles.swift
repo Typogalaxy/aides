@@ -137,7 +137,7 @@ public enum ProjectFiles {
             "certificates", "private_key", "auth.json", "invites", "server.lock", "aides.sqlite3", "aides.sqlite3-wal", "aides.sqlite3-shm"
         ]
         let extensions: Set<String> = [
-            "pem", "key", "cert", "cer", "crt", "p12", "pfx", "keychain", "keychain-db", "kdbx", "mobileprovision"
+            "pem", "key", "token", "cert", "cer", "crt", "p12", "pfx", "keychain", "keychain-db", "kdbx", "mobileprovision"
         ]
         return denied.contains(name) || name.hasPrefix(".env.") || name.hasPrefix(".aides-") || name.hasPrefix("id_rsa") ||
             name.hasPrefix("id_ed25519") || name.hasPrefix("id_ecdsa") ||
