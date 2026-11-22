@@ -1,0 +1,323 @@
+#!/usr/bin/env python3
+"""Exercise AidesServer on loopback with temporary data and synthetic models."""
+
+import argparse
+from datetime import datetime, timedelta, timezone
+import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+from pathlib import Path
+import re
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+class SmokeFailure(Exception):
+    pass
+
+
+def require(condition, description):
+    if not condition:
+        raise SmokeFailure(description)
+
+
+def find(items, **fields):
+    return next((item for item in items if all(item.get(key) == value for key, value in fields.items())), None)
+
+
+def wait_for(check, description, timeout=12):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = check()
+        if result:
+            return result
+        time.sleep(0.12)
+    raise SmokeFailure(description)
+
+
+class Client:
+    def __init__(self, port, token=None):
+        self.port = port
+        self.token = token
+
+    def request(self, method, route, payload=None, status=200):
+        headers = {"Accept": "application/json"}
+        body = None
+        if self.token:
+            headers["Authorization"] = "Bearer " + self.token
+        if payload is not None:
+            body = json.dumps(payload).encode()
+            headers["Content-Type"] = "application/json"
+
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request(method, "/api/v1" + route, body=body, headers=headers)
+            response = connection.getresponse()
+            require(response.status == status, f"{method} {route}: expected {status}, got {response.status}")
+            return json.loads(response.read())
+        finally:
+            connection.close()
+
+    def state(self):
+        return self.request("GET", "/state")
+
+    def post(self, route, payload, status=200):
+        return self.request("POST", route, payload, status=status)
+
+
+class OllamaFixture(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+    def do_POST(self):
+        if self.path != "/api/chat":
+            self.send_error(404)
+            return
+
+        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        system = " ".join(
+            message["content"] for message in request["messages"] if message["role"] == "system"
+        )
+        scope = "scoped" if "private-project-fixture" in system else "outside"
+        answer = f'{request["model"]} / {scope}'
+        # Echo only controlled markers, never the prompt or API credentials.
+        response = json.dumps({
+            "message": {"role": "assistant", "content": answer},
+            "done": True,
+            "prompt_eval_count": 7,
+            "eval_count": 3,
+        }).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
+
+class IsolatedServer:
+    def __init__(self, binary, temporary):
+        self.binary = binary
+        self.data = temporary / "data"
+        self.environment = {
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "AIDES_DATA_DIR": str(self.data),
+            "AIDES_HOST": "127.0.0.1",
+        }
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            self.port = listener.getsockname()[1]
+        fixture = temporary / "codex-fixture"
+        fixture.write_text("#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s' 'Approved fixture review'\n", encoding="utf-8")
+        fixture.chmod(0o700)
+        self.environment["AIDES_CODEX_PATH"] = str(fixture)
+        self.environment["AIDES_PORT"] = str(self.port)
+        self.process = None
+
+    def invite(self):
+        result = subprocess.run(
+            [str(self.binary), "invite"], env=self.environment, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, timeout=10,
+        )
+        code = result.stdout.strip()
+        require(re.fullmatch(r"[a-f0-9]{64}", code), "Server CLI did not issue an invitation")
+        return code
+
+    def start(self):
+        self.process = subprocess.Popen(
+            [str(self.binary), "serve"], env=self.environment,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        client = Client(self.port)
+
+        def ready():
+            require(self.process.poll() is None, "Server exited before becoming ready")
+            try:
+                return client.request("GET", "/health").get("status") == "ok"
+            except (ConnectionError, TimeoutError):
+                return False
+
+        wait_for(ready, "Server did not become ready")
+        return client
+
+    def stop(self):
+        if self.process is None:
+            return
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5)
+        self.process = None
+
+
+def wait_for_task(client, identifier, status):
+    def check():
+        task = find(client.state()["tasks"], id=identifier)
+        if task is None:
+            return None
+        if task["status"] == status:
+            return task
+        if task["status"] in {"failed", "cancelled", "completed"}:
+            raise SmokeFailure(f'Task ended in {task["status"]} while waiting for {status}')
+        return None
+
+    return wait_for(check, f"Task never reached {status}")
+
+
+def wait_for_reply(client, thread, expected):
+    def check():
+        conversation = find(client.state()["threads"], id=thread)
+        return find(conversation["messages"], role="assistant", text=expected)
+
+    wait_for(check, "Conversation reply was missing or had the wrong local context")
+
+
+def add_model(client, name, kind, model, endpoint=""):
+    state = client.post("/models", {"name": name, "kind": kind, "model": model, "endpoint": endpoint})
+    return find(state["models"], name=name)["id"]
+
+
+def exercise(server, mock_ollama):
+    invite = server.invite()
+    anonymous = server.start()
+    anonymous.request("GET", "/state", status=401)
+    owner = anonymous.post("/pair", {"code": invite, "name": "Smoke owner"})
+    anonymous.post("/pair", {"code": invite, "name": "Reused invitation"}, status=403)
+
+    client = Client(server.port, owner["token"])
+    guest_invite = client.post("/pair/invites", {})["code"]
+    guest = anonymous.post("/pair", {"code": guest_invite, "name": "Smoke guest"})
+    guest_client = Client(server.port, guest["token"])
+    guest_client.request("GET", "/state")
+    client.request("DELETE", "/devices/" + guest["deviceID"])
+    guest_client.request("GET", "/state", status=401)
+    print("PASS device authentication, invitation consumption, and revocation")
+
+    state = client.post("/projects", {"name": "Fixture project"})
+    project = find(state["projects"], name="Fixture project")
+    path = Path(project["directory"])
+    require(path.is_dir() and path.resolve().is_relative_to(server.data.resolve()), "Project directory was not isolated")
+    project_thread = find(state["threads"], role="project", projectID=project["id"])["id"]
+    secretary = find(state["threads"], role="secretary")["id"]
+    state = client.post("/threads", {"title": "Fixture follow-up", "role": "task", "projectID": project["id"]})
+    require(find(state["threads"], title="Fixture follow-up")["projectID"] == project["id"], "Task thread lost its project")
+    events = client.request("GET", f'/events?after={state["revision"] - 1}')
+    require(events["revision"] >= state["revision"], "Event state did not include the latest revision")
+
+    mock = add_model(client, "Mock A", "mock", "mock-a")
+    require(client.state()["settings"]["defaultModelID"] == mock, "First local model was not selected as default")
+    client.post(f"/threads/{secretary}/messages", {"text": "Start an isolated smoke test."})
+    wait_for_reply(client, secretary, "Test model received: Start an isolated smoke test.")
+    print("PASS project threads, revision sync, and offline mock reply")
+
+    scope = "project:" + project["id"].lower()
+    memory = {"key": "Fixture marker", "value": "outdated-fixture", "scope": scope, "sensitivity": "localOnly"}
+    before = client.post("/memory", memory)[0]
+    memory["value"] = "private-project-fixture"
+    after = client.post("/memory", memory)
+    require(len(after) == 1 and after[0]["id"] == before["id"], "Memory update was not stable")
+    require(client.request("GET", "/memory")[0]["value"] == memory["value"], "Memory update was not saved")
+    client.post("/memory", {**memory, "scope": "unknown:scope"}, status=400)
+    endpoint = f"http://127.0.0.1:{mock_ollama.server_port}"
+    local_a = add_model(client, "Local A", "ollama", "fixture-a", endpoint)
+    local_b = add_model(client, "Local B", "ollama", "fixture-b", endpoint)
+    state = client.post("/settings", {"defaultModelID": local_a, "preference": "Use short replies."})
+    require(state["settings"]["preferenceRevision"] > 0, "Preference revision was not incremented")
+    client.post(f"/threads/{project_thread}/messages", {"text": "What is the fixture marker?"})
+    wait_for_reply(client, project_thread, "fixture-a:local / scoped")
+    client.post(f"/threads/{secretary}/messages", {"text": "What is the fixture marker?"})
+    wait_for_reply(client, secretary, "fixture-a:local / outside")
+    print("PASS scoped memory reaches only the correct local model context")
+
+    due = (datetime.now(timezone.utc) + timedelta(seconds=3)).isoformat(timespec="milliseconds")
+    state = client.post("/tasks", {"title": "Pinned analysis", "kind": "analysis", "scheduledAt": due})
+    pinned = find(state["tasks"], title="Pinned analysis")
+    require(pinned["status"] == "scheduled" and pinned["modelID"] == local_a, "Future task was not created and pinned")
+    state = client.post("/schedules", {
+        "title": "Fixture reminder", "threadID": secretary, "kind": "reminder",
+        "repeatRule": "once", "timeZone": "Australia/Melbourne", "firstRun": due,
+    })
+    schedule = find(state["schedules"], title="Fixture reminder")
+    client.post("/settings", {"defaultModelID": local_b})
+    task = wait_for_task(client, pinned["id"], "completed")
+    require(task["modelID"] == local_a and task["result"] == "fixture-a:local / outside", "Changing the default moved the existing task")
+    wait_for_reply(client, secretary, "Fixture reminder")
+    print("PASS delayed worker pinning and scheduled reminder delivery")
+
+    cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
+    state = client.post("/tasks", {"title": "Cloud fixture request", "modelID": cloud})
+    cloud_task = find(state["tasks"], title="Cloud fixture request")
+    require(cloud_task["status"] == "waitingApproval" and not cloud_task["approvedCloud"], "Cloud execution bypassed approval")
+    client.post("/tasks/" + cloud_task["id"] + "/approve", {"approved": True})
+    result = wait_for_task(client, cloud_task["id"], "completed")
+    require(result["result"] == "Approved fixture review", "Approved command fixture did not return its report")
+
+    state = client.post("/reviews", {
+        "title": "Review fixture", "instruction": "Choose a storage format.", "modelIDs": [local_a, local_b],
+        "threadID": project_thread,
+    })
+    review = find(state["tasks"], title="Review fixture", kind="review")
+
+    def report_ready():
+        result = find(client.state()["tasks"], id=review["id"])
+        return result["status"] == "waiting" and "Independent interpretations" in (result.get("result") or "")
+
+    wait_for(report_ready, "Independent review reports were not ready for clarification")
+    client.post("/reviews/" + review["id"] + "/clarify", {"clarification": "Prefer plain text."})
+    done = wait_for_task(client, review["id"], "completed")
+    require("Follow-up interpretations" in done["result"], "Review did not include the follow-up round")
+    print("PASS explicit external approval and structured review")
+
+    server.stop()
+    server.start()
+    restored = client.state()
+    require(find(restored["projects"], id=project["id"]), "Project disappeared after restart")
+    require(restored["settings"]["defaultModelID"] == local_b, "Default model did not persist")
+    require(find(restored["tasks"], id=review["id"])["status"] == "completed", "Review did not persist")
+    require(client.request("GET", "/memory")[0]["value"] == memory["value"], "Scoped memory did not persist")
+    completed = [task for task in restored["tasks"] if task.get("scheduleID") == schedule["id"]]
+    require(len(completed) == 1 and completed[0]["status"] == "completed", "Reminder was lost or repeated")
+    require(find(restored["schedules"], id=schedule["id"]).get("nextRun") is None, "One-time schedule was left active")
+    guest_client.request("GET", "/state", status=401)
+    print("PASS durable state, one-time schedules, and persisted device revocation")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("binary", type=Path, help="Path to a built AidesServer")
+    args = parser.parse_args()
+    binary = args.binary.expanduser().resolve()
+    if not binary.is_file():
+        parser.error("The AidesServer binary does not exist")
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="aides-smoke-") as directory:
+            server = IsolatedServer(binary, Path(directory))
+            with ThreadingHTTPServer(("127.0.0.1", 0), OllamaFixture) as mock_ollama:
+                fixture_thread = threading.Thread(target=mock_ollama.serve_forever, daemon=True)
+                fixture_thread.start()
+                try:
+                    exercise(server, mock_ollama)
+                finally:
+                    server.stop()
+                    mock_ollama.shutdown()
+                    fixture_thread.join()
+    except SmokeFailure as error:
+        print(f"FAIL {error}", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        # Unexpected exceptions can contain raw request data or command output.
+        print(f"FAIL smoke test could not complete ({type(error).__name__})", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
