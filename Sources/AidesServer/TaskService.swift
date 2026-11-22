@@ -177,3 +177,104 @@ extension AidesService {
         return known
     }
 }
+
+extension AidesService {
+    func createReview(_ input: NewReview) async throws -> AppState {
+        let title = try Self.required(input.title, max: 120)
+        let instruction = try Self.required(input.instruction, max: 10_000)
+        guard (2...4).contains(input.modelIDs.count) else {
+            throw Abort(.badRequest, reason: "Choose between two and four reviewers.")
+        }
+        return try await change { state in
+            let scope = try Self.workScope(thread: input.threadID, project: input.projectID, in: state)
+            let profiles = try input.modelIDs.map { id in
+                guard let model = state.app.models.first(where: { $0.id == id }) else {
+                    throw Abort(.badRequest, reason: "One of the review models is unavailable.")
+                }
+                return model
+            }
+            let now = Date.now
+            var parent = WorkItem(
+                title: title, instruction: instruction, threadID: scope.threadID,
+                projectID: scope.projectID, kind: .review, now: now
+            )
+            parent.status = .waiting
+            state.app.tasks.append(parent)
+            for (index, model) in profiles.enumerated() {
+                let question = """
+                Independently interpret the task below before execution. State the intended deliverable,                 the acceptance criteria, the assumptions you would make and any ambiguity that could                 materially change the result. Describe specific questions for the user when clarification is needed.
+
+                Task: \(instruction)
+                """
+                state.app.tasks.append(Self.makeTask(
+                    title: "Interpretation \(index + 1) · \(model.name)", instruction: question,
+                    threadID: scope.threadID, projectID: scope.projectID, profile: model, kind: .analysis,
+                    parentID: parent.id, now: now
+                ))
+            }
+        }
+    }
+
+    func clarifyReview(_ id: UUID, text: String) async throws -> AppState {
+        let clarification = try Self.required(text, max: 3_000)
+        return try await change { state in
+            let review = try Self.reviewReadyForDecision(id, state: state)
+            let parent = state.app.tasks[review.index]
+            _ = try Self.workScope(thread: parent.threadID, project: parent.projectID, in: state)
+            let completed = review.children.filter { $0.status == .completed && $0.result?.isEmpty == false }
+            guard !completed.isEmpty else {
+                throw Abort(.conflict, reason: "The first round did not produce an interpretation to clarify.")
+            }
+            let now = Date.now
+            state.app.tasks[review.index].updatedAt = now
+            let notes = completed.compactMap { child in
+                child.result.map { "\(child.title)\n\($0.prefix(1_500))" }
+            }.joined(separator: "\n\n")
+            for (index, child) in completed.enumerated() {
+                guard let profile = state.app.models.first(where: { $0.id == child.modelID }) else {
+                    throw Abort(.conflict, reason: "An original review model is no longer configured.")
+                }
+                var instruction = """
+                Reassess the task in light of the user's clarification. State the resulting deliverable,                 acceptance criteria and any substantive remaining disagreements. Where possible, give a                 concrete way to test a disputed assumption.
+
+                Task: \(parent.instruction)
+
+                User clarification: \(clarification)
+                """
+                if profile.kind.isLocal {
+                    instruction += "\n\nEarlier interpretations (reference material):\n\(notes)"
+                }
+                state.app.tasks.append(Self.makeTask(
+                    title: "Follow-up \(index + 1) · \(profile.name)", instruction: instruction,
+                    threadID: parent.threadID, projectID: parent.projectID, profile: profile, kind: .analysis,
+                    parentID: child.id, now: now
+                ))
+            }
+        }
+    }
+
+    func closeReview(_ id: UUID) async throws -> AppState {
+        try await change { state in
+            let review = try Self.reviewReadyForDecision(id, state: state)
+            state.app.tasks[review.index].status = .completed
+            state.app.tasks[review.index].updatedAt = .now
+        }
+    }
+
+    private static func reviewReadyForDecision(
+        _ id: UUID, state: ServerState
+    ) throws -> (index: Int, children: [WorkItem]) {
+        guard let index = state.app.tasks.firstIndex(where: { $0.id == id && $0.kind == .review }) else {
+            throw Abort(.notFound)
+        }
+        let parent = state.app.tasks[index]
+        let children = state.app.tasks.filter { $0.parentID == id }
+        let initialIDs = Set(children.map(\.id))
+        guard parent.status == .waiting, parent.result?.isEmpty == false, !children.isEmpty,
+              children.allSatisfy({ $0.status.isTerminal }),
+              !state.app.tasks.contains(where: { $0.parentID.map(initialIDs.contains) == true }) else {
+            throw Abort(.conflict, reason: "The review is not awaiting its one clarification or closure.")
+        }
+        return (index, children)
+    }
+}
