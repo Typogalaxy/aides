@@ -59,14 +59,37 @@ extension AidesService {
     }
 
     func acceptToolkitSuggestion(_ id: UUID, deviceID: UUID) async throws -> ToolkitInvocation {
-        let suggestion = try Self.requireToolkitSuggestion(id, in: await store.snapshot())
+        let snapshot = await store.snapshot()
+        let suggestion = try Self.requireToolkitSuggestion(id, in: snapshot)
+        let reviewModelID = snapshot.app.settings.reviewModelID
+        if suggestion.tool == .moveFile, reviewModelID != nil,
+           snapshot.deviceFiles?.jobs.contains(where: { $0.id == id && $0.isToolkitInvocation }) != true {
+            let data = try AppJSON.encoder().encode(suggestion)
+            do {
+                try await LocalReview.check(
+                    "Move a file within the selected Toolkit folder", data: String(decoding: data, as: UTF8.self), in: snapshot
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw Abort(.forbidden, reason: (error as? StorageError)?.errorDescription ?? "Local review blocked the move.")
+            }
+        }
+        try Task.checkCancellation()
         return try await invokeToolkit(
             ToolkitInvocationRequest(
                 id: id, tool: suggestion.tool, resourceID: suggestion.resourceID,
                 path: suggestion.path, destination: suggestion.destination
             ),
             deviceID: deviceID,
-            authorize: { state in _ = try Self.requireToolkitSuggestion(id, in: state) }
+            authorize: { state in
+                _ = try Self.requireToolkitSuggestion(id, in: state)
+                if suggestion.tool == .moveFile,
+                   state.deviceFiles?.jobs.contains(where: { $0.id == id && $0.isToolkitInvocation }) != true,
+                   state.app.settings.reviewModelID != reviewModelID {
+                    throw Abort(.conflict, reason: "The local review policy changed. Confirm the proposal again.")
+                }
+            }
         )
     }
 

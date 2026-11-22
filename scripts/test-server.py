@@ -96,7 +96,9 @@ class OllamaFixture(BaseHTTPRequestHandler):
         scope = "scoped" if PRIVATE_MARKER in system else "outside"
         answer = f'{request["model"]} / {scope}'
         text = user_text(request)
-        if any("Approved task and workspace snapshots:" in item["content"] for item in request["messages"]):
+        if "You review a proposed action for the owner." in system:
+            answer = json.dumps({"allowed": "Denied.txt" not in text})
+        elif any("Approved task and workspace snapshots:" in item["content"] for item in request["messages"]):
             answer = json.dumps({
                 "summary": "Update the isolated fixture",
                 "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
@@ -107,6 +109,13 @@ class OllamaFixture(BaseHTTPRequestHandler):
         elif text == "Fixture Toolkit analyze receipt":
             evidence = "Approved local file receipt (JSON string):\n" + json.dumps("Synthetic granted folder")
             answer = "Local receipt present" if any(message["content"] == evidence for message in request["messages"]) else "No local receipt"
+        elif text == "Fixture Toolkit move blocked":
+            grant = re.search(r"Use resourceID ([0-9A-F-]+)", system)
+            answer = json.dumps({
+                "text": "Proposed move for local review",
+                "toolkit": {"tool": "files.move", "resourceID": grant[1], "path": "Denied.txt",
+                            "destination": "Moved.txt"},
+            })
         elif text.startswith("Fixture Toolkit "):
             grant = re.search(r"Use resourceID ([0-9A-F-]+)", system)
             answer = json.dumps({
@@ -398,6 +407,15 @@ def exercise_toolkit_models(anonymous, client, secretary, cloud):
             "Toolkit authorization rejection was not recorded")
     require("Synthetic granted folder" not in json.dumps(audit) and accepted["id"] not in json.dumps(audit),
             "Toolkit audit logged request identifiers or receipt contents")
+    model = client.state()["settings"]["defaultModelID"]
+    client.post("/settings", {"reviewModelID": model})
+    moves = client.post("/device-files/grants", {"name": "Local reviewer fixture", "allowMoves": True})
+    client.post(thread, {"text": "Fixture Toolkit move blocked", "toolkitResourceID": moves["id"]})
+    move = wait_for_reply(client, secretary, "Proposed move for local review")
+    require(move["toolkitSuggestion"]["tool"] == "files.move", "A scoped move was not proposed for review")
+    client.post(f'/toolkit/suggestions/{move["id"]}/accept', {}, status=403)
+    require(client.post("/device-files/jobs/next", {}).get("job") is None, "Local reviewer did not block file dispatch")
+    client.post("/settings", {"clearReviewModel": True})
     print("PASS Toolkit secretary and Worker scoping, confirmation, revocation, and audit")
 
 
