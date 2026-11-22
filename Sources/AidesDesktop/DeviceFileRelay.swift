@@ -97,6 +97,8 @@ final class DeviceFileRelay {
         runTask?.cancel()
         runTask = nil
         client = nil
+        isWorking = false
+        error = nil
         pendingMove = nil
         pendingOutcome = nil
         manifest = DeviceFileManifest()
@@ -113,12 +115,13 @@ final class DeviceFileRelay {
     }
 
     func grantAccess(to folder: URL, displayName: String, allowMoves: Bool) async -> Bool {
-        await perform { client in
+        await perform { client, runID in
             let bookmark = try FolderBookmarks.bookmark(for: folder)
             let grant: DeviceFileGrant = try await client.post(
                 ["device-files", "grants"], body: NewGrant(name: displayName, allowMoves: allowMoves)
             )
             do {
+                try requireConnection(runID)
                 try FolderBookmarks.save(bookmark, for: grant.id)
             } catch {
                 let _: DeviceFileManifest? = try? await client.delete(["device-files", "grants", grant.id.uuidString])
@@ -129,28 +132,32 @@ final class DeviceFileRelay {
     }
 
     func revoke(_ grant: DeviceFileGrant) async {
-        _ = await perform { client in
+        _ = await perform { client, runID in
             let changed: DeviceFileManifest = try await client.delete(["device-files", "grants", grant.id.uuidString])
-            manifest = changed
             if grant.deviceID == client.credential?.deviceID {
                 try FolderBookmarks.delete(grant.id)
             }
+            try requireConnection(runID)
+            manifest = changed
+            if pendingMove?.grantID == grant.id { pendingMove = nil }
         }
     }
 
     func submit(_ request: FileJobRequest) async -> Bool {
-        await perform { client in
+        await perform { client, runID in
             let job: DeviceFileJob = try await client.post(["device-files", "jobs"], body: request)
-            manifest.jobs.append(job)
+            try requireConnection(runID)
+            update(job)
         }
     }
 
     func respondToMove(_ jobID: UUID, approved: Bool) async {
         guard let job = pendingMove, job.id == jobID else { return }
-        _ = await perform { client in
+        _ = await perform { client, runID in
             if approved {
-                try await loadManifest(using: client, runID: generation)
-                guard let grant = manifest.grants.first(where: { $0.id == job.grantID && $0.allowMoves }),
+                try await loadManifest(using: client, runID: runID)
+                guard pendingMove?.id == job.id,
+                      let grant = manifest.grants.first(where: { $0.id == job.grantID && $0.allowMoves }),
                       grant.deviceID == client.credential?.deviceID,
                       manifest.jobs.first(where: { $0.id == job.id })?.status == "running" else {
                     pendingMove = nil
@@ -174,8 +181,9 @@ final class DeviceFileRelay {
                 self.pendingOutcome = nil
                 update(result)
             }
-            guard pendingMove == nil, !isWorking else { return .seconds(1) }
+            guard !isWorking else { return .seconds(1) }
             try await loadManifest(using: client, runID: runID)
+            guard !isWorking, pendingMove == nil else { return .seconds(2) }
             guard manifest.grants.contains(where: { $0.deviceID == client.credential?.deviceID }) else { return .seconds(3) }
             let response: OldestFileJob = try await client.post(["device-files", "jobs", "next"], body: ClaimRequest())
             guard generation == runID else { return .seconds(2) }
@@ -187,7 +195,11 @@ final class DeviceFileRelay {
                 pendingOutcome = (job.id, execute(job))
             }
             return .milliseconds(150)
-        } catch ServerError.response(409, _) where pendingOutcome != nil {
+        } catch let failure as ServerError where failure.isUnauthorized {
+            guard generation == runID else { return .seconds(2) }
+            stop()
+            return .seconds(12)
+        } catch ServerError.response(let status, _) where [404, 409].contains(status) && pendingOutcome != nil {
             // A restarted server may have marked an unfinished move interrupted. Never replay it.
             guard generation == runID else { return .seconds(2) }
             pendingOutcome = nil
@@ -203,23 +215,30 @@ final class DeviceFileRelay {
 
     private func loadManifest(using client: ServerClient, runID: UUID) async throws {
         let update: DeviceFileManifest = try await client.get(["device-files"])
-        guard generation == runID, !Task.isCancelled else { throw CancellationError() }
+        try requireConnection(runID)
         manifest = update
         if let pendingMove, !manifest.jobs.contains(where: { $0.id == pendingMove.id && $0.status == "running" }) {
             self.pendingMove = nil
         }
     }
 
-    private func perform(_ operation: (ServerClient) async throws -> Void) async -> Bool {
+    private func requireConnection(_ runID: UUID) throws {
+        guard generation == runID, !Task.isCancelled else { throw CancellationError() }
+    }
+
+    private func perform(_ operation: (ServerClient, UUID) async throws -> Void) async -> Bool {
         guard let client, !isWorking else { return false }
+        let runID = generation
         isWorking = true
         error = nil
-        defer { isWorking = false }
+        defer { if generation == runID { isWorking = false } }
         do {
-            try await operation(client)
+            try await operation(client, runID)
             return true
+        } catch is CancellationError {
+            return false
         } catch {
-            self.error = error.localizedDescription
+            if generation == runID { self.error = error.localizedDescription }
             return false
         }
     }
