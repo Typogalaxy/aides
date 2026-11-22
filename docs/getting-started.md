@@ -78,8 +78,6 @@ standard library and never calls live model accounts. Use
 Production signing, notarization and the Sparkle update feed require
 maintainer credentials.
 
-The iPhone client and QR pairing are in the backlog. This build's tool surface
-is currently scoped to project files, reminders, local memory, model tasks and
-structured reviews. Outlook, Gmail, and Fastmail are planned as Aides Toolkit
-connectors. General desktop control, other third-party connectors, and
-autonomous repository-wide coding are outside the current runtime.
+See the [Toolkit guide](toolkit.md) for account setup, local permissions,
+worker inputs and monitored sources. The iPhone client and QR pairing are
+in the backlog.
