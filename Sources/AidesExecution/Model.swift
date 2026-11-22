@@ -20,13 +20,15 @@ public struct ModelMessage: Codable, Sendable {
     public let role: Role
     public let text: String
     public let images: [Data]?
+    public let localOnly: Bool?
 
     static let maximumImageBytes = 512 * 1_024
 
-    public init(role: Role, text: String, images: [Data]? = nil) {
+    public init(role: Role, text: String, images: [Data]? = nil, localOnly: Bool? = nil) {
         self.role = role
         self.text = text
         self.images = images
+        self.localOnly = localOnly
     }
 }
 
@@ -71,6 +73,9 @@ public struct ModelRequest: Sendable {
             throw ModelExecutionError.inputLimit
         }
         for message in messages {
+            guard message.localOnly != true || provider.isLocal else {
+                throw ModelExecutionError.invalidConfiguration
+            }
             remaining -= message.text.utf8.count
             if let images = message.images, !images.isEmpty {
                 guard provider == .ollama, message.role == .user else {
