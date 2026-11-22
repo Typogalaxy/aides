@@ -255,6 +255,59 @@ def verify_cloud_memory(client, project_thread, scope, model, private_memory):
     require("shared memory" in blocked.get("error", ""), "Revocation did not prevent dispatch")
 
 
+def exercise_toolkit(anonymous, client, target, owner, grant):
+    catalog_path = "/toolkit/catalog"
+    invocations = "/toolkit/invocations"
+    anonymous.request("GET", catalog_path, status=401)
+    catalog = client.request("GET", catalog_path)
+    approvals = {tool["id"]: tool["approval"] for tool in catalog["tools"]}
+    require(approvals.get("files.list") == "grantedResource"
+            and approvals.get("files.read") == "grantedResource"
+            and approvals.get("files.move") == "targetDevice",
+            "Toolkit file actions did not advertise their approval requirements")
+    resource = find(catalog["resources"], id=grant["id"])
+    require(resource is not None and resource["deviceID"] == grant["deviceID"]
+            and set(resource["tools"]) == {"files.list", "files.read"},
+            "Toolkit catalog exposed move access for a read-only folder")
+
+    read = {
+        "id": str(uuid.uuid4()).upper(), "tool": "files.read",
+        "resourceID": resource["id"], "path": "Notes.txt",
+    }
+    lookup = f'{invocations}/{read["id"]}'
+    anonymous.post(invocations, read, status=401)
+    anonymous.request("GET", lookup, status=401)
+    client.request("GET", lookup, status=404)
+    client.post(invocations, {**read, "path": "../Outside.txt"}, status=400)
+    client.post(invocations, {**read, "tool": "files.move", "destination": "Renamed.txt"}, status=403)
+
+    queued = client.post(invocations, read)
+    require(queued["id"] == read["id"] and queued["tool"] == read["tool"] and queued["status"] == "queued"
+            and queued["resourceID"] == grant["id"] and queued["deviceID"] == grant["deviceID"]
+            and queued["requestedByDeviceID"] == owner["deviceID"],
+            "Toolkit request lost its operation, resource, or device attribution")
+    require(client.post(invocations, read) == queued, "Toolkit retry created a second invocation")
+    client.post(invocations, {**read, "path": "Other.txt"}, status=409)
+    target.post(invocations, read, status=409)
+    require(client.post("/device-files/jobs/next", {}).get("job") is None,
+            "Requester claimed a Toolkit operation assigned to another device")
+    claimed = target.post("/device-files/jobs/next", {})["job"]
+    require(claimed["id"] == read["id"] and claimed["operation"] == "read",
+            "The file relay did not claim the Toolkit invocation")
+    require(client.request("GET", lookup)["status"] == "running", "Toolkit status did not reflect the relay claim")
+    finish = f'/device-files/jobs/{read["id"]}/finish'
+    client.post(finish, {"result": "Untrusted receipt"}, status=404)
+    target.post(finish, {"result": "Synthetic Toolkit result"})
+    completed = client.request("GET", lookup)
+    require(completed["status"] == "completed" and completed["result"] == "Synthetic Toolkit result",
+            "Toolkit status did not return the relay receipt")
+    require(client.post(invocations, read) == completed, "A completed Toolkit invocation was dispatched again")
+    require(target.post("/device-files/jobs/next", {}).get("job") is None,
+            "A Toolkit retry left a duplicate job on the file relay")
+    print("PASS Toolkit discovery, grant checks, shared relay, and idempotent invocation")
+    return completed
+
+
 def exercise(server, mock_ollama):
     invite = server.invite()
     anonymous = server.start()
@@ -279,6 +332,7 @@ def exercise(server, mock_ollama):
     client.post(finish, {"result": "Untrusted receipt"}, status=404)
     receipt = guest_client.post(finish, {"result": "Synthetic text fixture"})
     require(receipt["status"] == "completed", "Target device did not complete its file job")
+    toolkit_receipt = exercise_toolkit(anonymous, client, guest_client, owner, grant)
     queued = client.post("/device-files/jobs", read)
     client.request("DELETE", "/devices/" + guest["deviceID"])
     revoked_files = client.request("GET", "/device-files")
@@ -408,10 +462,28 @@ def exercise(server, mock_ollama):
     require(client.request("GET", proposal_path)["appliedPaths"] == ["Example.swift"], "Apply was not idempotent")
     print("PASS code proposal isolation, stale-file refusal, and explicit application")
 
+    folder = client.post("/device-files/grants", {"name": "Move-enabled smoke folder", "allowMoves": True})
+    move = {
+        "id": str(uuid.uuid4()).upper(), "tool": "files.move", "resourceID": folder["id"],
+        "path": "Before.txt", "destination": "After.txt",
+    }
+    client.post("/toolkit/invocations", move)
+    claimed = client.post("/device-files/jobs/next", {})["job"]
+    require(claimed["id"] == move["id"] and claimed["operation"] == "move" and claimed["status"] == "running",
+            "Move invocation did not reach the device relay for confirmation")
+
     server.stop()
     legacy_ids = seed_legacy_mail(server.data, cloud_task)
     server.start()
     restored = client.state()
+    require(client.request("GET", f'/toolkit/invocations/{toolkit_receipt["id"]}') == toolkit_receipt,
+            "Completed Toolkit receipt changed after restart")
+    interrupted = client.request("GET", f'/toolkit/invocations/{move["id"]}')
+    require(interrupted["status"] == "interrupted", "A claimed Toolkit move was not interrupted on restart")
+    require(client.post("/toolkit/invocations", move) == interrupted, "Restart made a Toolkit move retry unsafe")
+    require(client.post("/device-files/jobs/next", {}).get("job") is None, "Restart replayed a claimed Toolkit move")
+    client.post(f'/device-files/jobs/{move["id"]}/finish', {"result": "Late receipt"}, status=409)
+    print("PASS durable Toolkit receipts and restart without replaying a claimed move")
     queued_mail, completed_mail = (find(restored["tasks"], id=identifier) for identifier in legacy_ids)
     require(queued_mail["status"] == "cancelled", "Old mail work was left eligible to run")
     require(completed_mail["status"] == "completed", "Completed mail history was changed")
@@ -432,6 +504,18 @@ def exercise(server, mock_ollama):
             "Reminder confirmation did not persist across restart")
     guest_client.request("GET", "/state", status=401)
     print("PASS durable state, one-time schedules, and persisted device revocation")
+
+    # Rotate the original move receipt out with newer terminal file requests.
+    for _ in range(32):
+        job = client.post("/device-files/jobs", {"grantID": folder["id"], "operation": "list", "path": ""})
+        claim = client.post("/device-files/jobs/next", {})["job"]
+        require(claim["id"] == job["id"], "History rotation unexpectedly replayed an earlier invocation")
+        client.post(f'/device-files/jobs/{job["id"]}/finish', {"result": "Synthetic directory listing"})
+    client.request("GET", f'/toolkit/invocations/{move["id"]}', status=410)
+    client.post("/toolkit/invocations", move, status=410)
+    require(client.post("/device-files/jobs/next", {}).get("job") is None,
+            "A Toolkit invocation was replayed after its receipt expired")
+    print("PASS expired Toolkit receipts cannot cause a second dispatch")
 
 
 def seed_legacy_mail(directory, template):
