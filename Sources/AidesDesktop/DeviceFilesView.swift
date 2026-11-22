@@ -22,7 +22,7 @@ struct DeviceFilesView: View {
                         .textSelection(.enabled)
                 }
             }
-            Section("Shared folders") {
+            Section("File and folder access") {
                 HStack {
                     Button("Share local folder…") { chooseFolder() }
                     Button("Refresh") { Task { await relay.refresh() } }
@@ -192,6 +192,7 @@ private struct FileJobSheet: View {
     @ViewState private var operation = FileOperation.list
     @ViewState private var path = ""
     @ViewState private var destination = ""
+    @ViewState private var lastSubmission: (request: FileJobRequest, id: UUID)?
 
     private var operations: [FileOperation] {
         grant.allowMoves ? FileOperation.allCases : [.list, .read]
@@ -222,11 +223,14 @@ private struct FileJobSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Send request") {
+                    let request = FileJobRequest(
+                        grantID: grant.id, operation: operation, path: path.trimmed,
+                        destination: operation == .move ? destination.trimmed : nil
+                    )
+                    let invocationID = lastSubmission.flatMap { $0.request == request ? $0.id : nil } ?? UUID()
+                    lastSubmission = (request, invocationID)
                     Task {
-                        if await relay.submit(FileJobRequest(
-                            grantID: grant.id, operation: operation, path: path.trimmed,
-                            destination: operation == .move ? destination.trimmed : nil
-                        )) { dismiss() }
+                        if await relay.submit(request, invocationID: invocationID) { dismiss() }
                     }
                 }
                 .buttonStyle(.borderedProminent)

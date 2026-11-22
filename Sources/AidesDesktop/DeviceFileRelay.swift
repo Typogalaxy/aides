@@ -33,13 +33,16 @@ enum FileOperation: String, Codable, CaseIterable, Identifiable, Sendable {
     case list, read, move
 
     var id: Self { self }
-    var title: String {
+
+    var tool: ToolkitTool {
         switch self {
-        case .list: "List directory"
-        case .read: "Read text file"
-        case .move: "Move file"
+        case .list: .listDirectory
+        case .read: .readTextFile
+        case .move: .moveFile
         }
     }
+
+    var title: String { tool.descriptor.title }
 }
 
 private struct NewGrant: Encodable, Sendable {
@@ -47,7 +50,7 @@ private struct NewGrant: Encodable, Sendable {
     let allowMoves: Bool
 }
 
-struct FileJobRequest: Encodable, Sendable {
+struct FileJobRequest: Encodable, Equatable, Sendable {
     let grantID: UUID
     let operation: FileOperation
     let path: String
@@ -143,11 +146,27 @@ final class DeviceFileRelay {
         }
     }
 
-    func submit(_ request: FileJobRequest) async -> Bool {
+    func submit(_ request: FileJobRequest, invocationID: UUID) async -> Bool {
         await perform { client, runID in
-            let job: DeviceFileJob = try await client.post(["device-files", "jobs"], body: request)
+            do {
+                let _: ToolkitCatalog = try await client.get(["toolkit", "catalog"])
+            } catch ServerError.response(404, _) {
+                // Older servers only accept the device-file request format.
+                try requireConnection(runID)
+                let job: DeviceFileJob = try await client.post(["device-files", "jobs"], body: request)
+                try requireConnection(runID)
+                update(job)
+                return
+            }
             try requireConnection(runID)
-            update(job)
+            let _: ToolkitInvocation = try await client.post(
+                ["toolkit", "invocations"],
+                body: ToolkitInvocationRequest(
+                    id: invocationID, tool: request.operation.tool, resourceID: request.grantID,
+                    path: request.path, destination: request.destination
+                )
+            )
+            try requireConnection(runID)
         }
     }
 

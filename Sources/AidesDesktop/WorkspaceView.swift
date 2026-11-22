@@ -154,7 +154,7 @@ struct WorkspaceView: View {
             if workspace.fileRelay.pendingMove != nil {
                 Button("Review file move") {
                     page = .settings
-                    settingsPane = .files
+                    settingsPane = .toolkit
                 }
                 .buttonStyle(.bordered)
             }

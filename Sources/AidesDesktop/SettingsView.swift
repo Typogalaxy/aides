@@ -24,7 +24,7 @@ struct SettingsView: View {
             case .models: ModelSettingsView(workspace: workspace)
             case .memory: MemorySettingsView(workspace: workspace)
             case .devices: DeviceSettingsView(workspace: workspace)
-            case .files: DeviceFilesView(workspace: workspace)
+            case .toolkit: DeviceFilesView(workspace: workspace)
             case .application: ApplicationSettingsView(updates: updates)
             }
         }
@@ -35,7 +35,7 @@ enum SettingsPane: String, CaseIterable {
     case models = "Models"
     case memory = "Memory"
     case devices = "Devices"
-    case files = "Files"
+    case toolkit = "Toolkit"
     case application = "Application"
 }
 
