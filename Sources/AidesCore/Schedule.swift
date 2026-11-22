@@ -40,7 +40,10 @@ public struct WorkSchedule: Codable, Identifiable, Sendable {
         calendar.timeZone = zone
         let days = repeatRule == .weekly ? 7 : 1
         let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: firstRun), to: date).day ?? 0
-        let nextOffset = (max(0, offset) / days + 1) * days
-        return calendar.date(byAdding: .day, value: nextOffset, to: firstRun)
+        let offsetForToday = (max(0, offset) / days) * days
+        if let candidate = calendar.date(byAdding: .day, value: offsetForToday, to: firstRun), candidate > date {
+            return candidate
+        }
+        return calendar.date(byAdding: .day, value: offsetForToday + days, to: firstRun)
     }
 }

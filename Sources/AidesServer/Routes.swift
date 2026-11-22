@@ -94,6 +94,10 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.clarifyReview(id(request), text: decode(ClarifyReview.self, request).clarification))
     }
+    api.post("reviews", ":id", "finish") { request in
+        _ = try await service.authenticatedDevice(request)
+        return try await json(service.closeReview(id(request)))
+    }
 }
 
 private func id(_ request: Request) throws -> UUID {

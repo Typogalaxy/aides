@@ -142,7 +142,7 @@ actor JobRunner {
                     }
                 }
             }
-            if let parent = work.parentID { Self.updateReview(parent, in: &state) }
+            if status.isTerminal { AidesService.reconcileReview(of: work.id, in: &state) }
             state.revise()
         }
     }
@@ -169,14 +169,4 @@ actor JobRunner {
         }
     }
 
-    static func updateReview(_ parent: UUID, in state: inout ServerState) {
-        guard let index = state.app.tasks.firstIndex(where: { $0.id == parent }), !state.app.tasks[index].status.isTerminal else { return }
-        let children = state.app.tasks.filter { $0.parentID == parent }
-        guard !children.isEmpty, children.allSatisfy(\.status.isTerminal) else { return }
-        state.app.tasks[index].status = .waiting
-        state.app.tasks[index].result = children.enumerated().map { offset, child in
-            "Worker \(offset + 1) — \(child.status.rawValue)\n\(child.result ?? child.error ?? "No report.")"
-        }.joined(separator: "\n\n")
-        state.app.tasks[index].updatedAt = .now
-    }
 }
