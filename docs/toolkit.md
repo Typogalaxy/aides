@@ -15,7 +15,7 @@ Triggers create notices or queued work according to their own schedules.
 | Aides data | Query scoped memory, projects, project files, schedules and reminder history. Create or manage reminders with Aides scheduling. |
 | GitHub | Read Issues, pull requests and workflow runs for a configured repository. With an approved write scope, prepare and confirm creating an Issue or a same-repository PR. |
 | Web sources | Monitor explicitly added RSS or Atom feeds and public HTTPS pages. Open the configured source in the browser yourself. |
-| Desktop | On the current Mac, approve one activation or one window preview for a supported app. Calculator also supports one explicitly confirmed numeric key press. Snapshot access requires macOS Screen Recording permission. |
+| Desktop | Grant a local Worker access to chosen apps on a paired Mac. Use multi-step interaction, one-shot window attachments, approval and handoff. [Computer Use guide](computer-use.md) |
 | Audit | Review recent request outcomes for paired devices. Request and response contents stay out of the audit. |
 | Notifications | Receive in-app notices from Aides reminders and source watches. Enable generic macOS notifications individually on each desktop. |
 
