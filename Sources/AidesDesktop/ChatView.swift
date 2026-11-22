@@ -188,9 +188,7 @@ struct ChatView: View {
                                 messageRow(message, isPreview: hasPreview && message.id == preview?.id)
                             }
                             if isWaiting {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .accessibilityLabel("Waiting for a reply")
+                                ThinkingIndicator()
                             }
                         }
                         Color.clear.frame(height: 1).id("conversation-end")
@@ -436,6 +434,35 @@ struct ChatView: View {
                 if toolkitMailAccountID == mailAccount { toolkitMailAccountID = nil }
             }
         }
+    }
+}
+
+private struct ThinkingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                Text("Thinking").foregroundStyle(.secondary)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    let sweep = timeline.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 1.8) / 1.8
+                    let center = sweep * 1.7 - 0.35
+                    let gray = Color(white: colorScheme == .dark ? 0.62 : 0.47)
+                    Text("Thinking")
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [gray, Color(white: 0.95), gray],
+                                startPoint: UnitPoint(x: center - 0.32, y: 0.5),
+                                endPoint: UnitPoint(x: center + 0.32, y: 0.5)
+                            )
+                        )
+                }
+            }
+        }
+        .desktopUIFont(.callout, weight: .medium)
     }
 }
 
