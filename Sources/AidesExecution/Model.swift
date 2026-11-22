@@ -19,10 +19,14 @@ public struct ModelMessage: Codable, Sendable {
 
     public let role: Role
     public let text: String
+    public let images: [Data]?
 
-    public init(role: Role, text: String) {
+    static let maximumImageBytes = 512 * 1_024
+
+    public init(role: Role, text: String, images: [Data]? = nil) {
         self.role = role
         self.text = text
+        self.images = images
     }
 }
 
@@ -68,6 +72,17 @@ public struct ModelRequest: Sendable {
         }
         for message in messages {
             remaining -= message.text.utf8.count
+            if let images = message.images, !images.isEmpty {
+                guard provider == .ollama, message.role == .user else {
+                    throw ModelExecutionError.invalidConfiguration
+                }
+                guard images.count == 1, let image = images.first, !image.isEmpty,
+                      image.count <= ModelMessage.maximumImageBytes else {
+                    throw ModelExecutionError.inputLimit
+                }
+                // Count the base64 expansion against the input budget.
+                remaining -= ((image.count + 2) / 3) * 4
+            }
             guard remaining >= 0 else { throw ModelExecutionError.inputLimit }
         }
     }

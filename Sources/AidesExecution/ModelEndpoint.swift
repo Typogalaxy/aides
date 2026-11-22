@@ -44,14 +44,20 @@ extension ModelRequest {
 struct WireMessage: Encodable {
     let role: String
     let content: String
+    let images: [Data]?
 
-    init(role: String, content: String) {
+    init(role: String, content: String, images: [Data]? = nil) {
         self.role = role
         self.content = content
+        self.images = images
     }
 
     init(_ message: ModelMessage) {
-        self.init(role: message.role.rawValue, content: message.text)
+        self.init(
+            role: message.role.rawValue,
+            content: message.text,
+            images: message.images.flatMap { $0.isEmpty ? nil : $0 }
+        )
     }
 }
 

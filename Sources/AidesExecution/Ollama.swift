@@ -1,7 +1,7 @@
 import Foundation
 
 extension ModelClient {
-    func generateOllama(_ request: ModelRequest) async throws -> ModelOutput {
+    func generateOllama(_ request: ModelRequest, requiresJSONObject: Bool = false) async throws -> ModelOutput {
         guard request.apiKey == nil else { throw ModelExecutionError.invalidConfiguration }
         let endpoint = try request.modelEndpoint(route: "/api/chat", acceptedBases: ["", "/api"])
         let name = request.model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -19,13 +19,17 @@ extension ModelClient {
         }
         let (response, networkBytes) = try await post(
             endpoint,
-            payload: OllamaInput(model: localName, messages: messages, options: .init(numPredict: request.maxOutputTokens)),
+            payload: OllamaInput(
+                model: localName, messages: messages, options: .init(numPredict: request.maxOutputTokens),
+                format: requiresJSONObject ? "json" : nil
+            ),
             expecting: OllamaOutput.self
         )
 
         guard response.remoteModel == nil, response.remoteHost == nil else {
             throw ModelExecutionError.unexpectedResponse
         }
+        if requiresJSONObject, response.doneReason == "length" { throw ModelExecutionError.outputLimit }
         guard response.done, response.message.role == "assistant", !response.message.content.isEmpty else {
             throw ModelExecutionError.unexpectedResponse
         }
@@ -51,6 +55,7 @@ private struct OllamaInput: Encodable {
     let messages: [WireMessage]
     let stream = false
     let options: Options
+    let format: String?
 }
 
 private struct OllamaOutput: Decodable {
@@ -61,6 +66,7 @@ private struct OllamaOutput: Decodable {
 
     let message: Message
     let done: Bool
+    let doneReason: String?
     let remoteModel: String?
     let remoteHost: String?
     let inputTokens: Int?
@@ -68,6 +74,7 @@ private struct OllamaOutput: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case message, done
+        case doneReason = "done_reason"
         case remoteModel = "remote_model"
         case remoteHost = "remote_host"
         case inputTokens = "prompt_eval_count"
