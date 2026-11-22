@@ -63,6 +63,11 @@ struct ProjectsView: View {
                         .font(.callout.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                    Toggle("Watch directory", isOn: Binding(
+                        get: { project.watching == true },
+                        set: { enabled in Task { await workspace.setProjectWatching(project.id, enabled: enabled) } }
+                    ))
+                    .disabled(workspace.isWorking)
                 }
                 Divider()
                 HStack {

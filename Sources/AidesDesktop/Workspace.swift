@@ -245,6 +245,10 @@ final class Workspace {
         return created
     }
 
+    func setProjectWatching(_ id: UUID, enabled: Bool) async {
+        await perform { try await update(["projects", id.uuidString, "watch"], ProjectWatchRequest(enabled: enabled)) }
+    }
+
     func createReview(_ request: ReviewRequest) async -> UUID? {
         var created: UUID?
         await perform {
@@ -352,6 +356,7 @@ private struct InviteResponse: Decodable & Sendable { let code: String }
 private struct ThreadRequest: Encodable { let title: String; let role: String; let projectID: UUID? }
 private struct ArchiveRequest: Encodable { let report: String }
 private struct MessageRequest: Encodable { let text: String }
+private struct ProjectWatchRequest: Encodable { let enabled: Bool }
 private struct ProjectRequest: Encodable { let name: String; let directory: String? }
 private struct PauseRequest: Encodable { let paused: Bool }
 private struct ApprovalRequest: Encodable { let approved: Bool }
