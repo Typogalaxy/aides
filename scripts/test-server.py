@@ -101,6 +101,9 @@ class OllamaFixture(BaseHTTPRequestHandler):
                 "summary": "Update the isolated fixture",
                 "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
             })
+        elif text == "Fixture Toolkit analyze receipt":
+            evidence = "Approved local file receipt (JSON string):\n" + json.dumps("Synthetic granted folder")
+            answer = "Local receipt present" if any(message["content"] == evidence for message in request["messages"]) else "No local receipt"
         elif text.startswith("Fixture Toolkit "):
             grant = re.search(r"Use resourceID ([0-9A-F-]+)", system)
             answer = json.dumps({
@@ -319,6 +322,39 @@ def exercise_toolkit(anonymous, client, target, owner, grant):
     return completed
 
 
+def exercise_toolkit_writes(client):
+    read_only = client.post("/device-files/grants", {"name": "Files read-only"})
+    write = client.post("/device-files/grants", {"name": "Files text", "allowWrites": True})
+    query = "?writes=true"
+    catalog = client.request("GET", "/toolkit/catalog" + query)
+    tools = find(catalog["resources"], id=write["id"])["tools"]
+    require("files.create" in tools and "files.replace" in tools and "files.move" not in tools,
+            "Write and move permissions were not independent")
+    create = {"id": str(uuid.uuid4()).upper(), "tool": "files.create", "resourceID": write["id"],
+              "path": "Draft.txt", "text": "New text"}
+    url = "/toolkit/invocations"
+    client.post(url, {**create, "resourceID": read_only["id"]}, status=403)
+    client.post(url, {**create, "path": "mail-test.token"}, status=400)
+    client.post(url, {**create, "text": "a" * 4097}, status=400)
+    submitted = client.post(url, create)
+    client.post(url, {**create, "text": "Different text"}, status=409)
+    require(find(client.request("GET", "/device-files")["jobs"], id=submitted["id"]) is None,
+            "A legacy client saw an unsupported write")
+    require(client.post("/device-files/jobs/next", {}).get("job") is None, "A legacy client claimed a write")
+    claim = client.post("/device-files/jobs/next" + query, {})["job"]
+    require(claim["id"] == submitted["id"] and claim["text"] == create["text"],
+            "Approved-write relay did not receive exactly the proposed text")
+    client.post(f'/device-files/jobs/{claim["id"]}/finish', {"error": "Target Mac declined the file change."})
+    require(client.post(url, create)["status"] == "failed", "Declined write was dispatched again")
+    replace = {**create, "id": str(uuid.uuid4()).upper(), "tool": "files.replace", "expectedText": "Old text"}
+    client.post(url, {key: value for key, value in replace.items() if key != "expectedText"}, status=400)
+    queued = client.post(url, replace)
+    client.request("DELETE", f'/device-files/grants/{write["id"]}' + query)
+    require(client.request("GET", f'{url}/{queued["id"]}')["status"] == "cancelled",
+            "Revoked grant left a write queued")
+    print("PASS independent file write grants, target relay, and legacy compatibility")
+
+
 def exercise_toolkit_models(anonymous, client, secretary, cloud):
     grant = client.post("/device-files/grants", {"name": "One request only", "allowMoves": False})
     payload = {"text": "Fixture Toolkit list files", "toolkitResourceID": grant["id"]}
@@ -339,12 +375,19 @@ def exercise_toolkit_models(anonymous, client, secretary, cloud):
 
     client.post("/tasks", {"title": "External Toolkit worker", "modelID": cloud,
                            "toolkitResourceID": grant["id"]}, status=403)
+    selection = {"title": "Receipt analysis", "instruction": "Fixture Toolkit analyze receipt",
+                 "toolkitInvocationID": accepted["id"]}
+    client.post("/tasks", {**selection, "modelID": cloud}, status=403)
+    state = client.post("/tasks", selection)
+    analyzed = wait_for_task(client, find(state["tasks"], title=selection["title"])["id"], "completed")
+    require(analyzed["result"] == "Local receipt present", "Selected file receipt did not reach the local Worker")
     state = client.post("/tasks", {"title": "Scoped Toolkit worker", "instruction": payload["text"],
                                    "toolkitResourceID": grant["id"]})
     worker = wait_for_task(client, find(state["tasks"], title="Scoped Toolkit worker")["id"], "completed")
     require(worker["toolkitSuggestion"]["resourceID"] == grant["id"], "Local Worker did not propose the tool")
     client.request("DELETE", f'/device-files/grants/{grant["id"]}')
     client.post(f'/toolkit/suggestions/{worker["id"]}/accept', {}, status=409)
+    client.post("/tasks", selection, status=403)
     require(client.post("/device-files/jobs/next", {}).get("job") is None, "Revoked proposal still dispatched")
     print("PASS Toolkit secretary and Worker scoping, confirmation, and revocation")
 
@@ -453,6 +496,7 @@ def exercise(server, mock_ollama):
 
     cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
     exercise_toolkit_models(anonymous, client, secretary, cloud)
+    exercise_toolkit_writes(client)
     state = client.post("/tasks", {"title": "Cloud fixture request", "modelID": cloud})
     cloud_task = find(state["tasks"], title="Cloud fixture request")
     require(cloud_task["status"] == "waitingApproval" and not cloud_task["approvedCloud"], "Cloud execution bypassed approval")
