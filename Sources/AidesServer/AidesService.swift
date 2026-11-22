@@ -55,8 +55,10 @@ struct AidesService: Sendable {
 
     func start() async {
         async let polling: Void = feeds.start()
+        async let mailPolling: Void = runToolkitMailWatches()
         await jobs.start()
         await polling
+        await mailPolling
     }
 
     func authenticatedDevice(_ request: Request) async throws -> UUID {

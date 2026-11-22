@@ -11,6 +11,7 @@ struct ServerState: Codable, Sendable {
     var deviceFiles: DeviceFileState?
     var toolkitFeeds: [ToolkitFeed]?
     var toolkitCommandRuns: [UUID: ToolkitCommandRun]?
+    var toolkitMailWatches: [ToolkitMailWatch]?
     var toolkitMailDrafts: [UUID: ToolkitMailDraft]?
     var toolkitMailRetiredDraftIDs: Set<UUID>?
     var acceptedScheduleSuggestions: [UUID: UUID]?

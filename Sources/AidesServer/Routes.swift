@@ -119,6 +119,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
         return try await json(service.closeReview(id(request)))
     }
     let toolkit = api.grouped("toolkit")
+    registerToolkitMailWatchRoutes(toolkit, service: service)
     registerToolkitFeedRoutes(toolkit, service: service)
     registerToolkitGitHubRoutes(toolkit, service: service)
     registerToolkitMailRoutes(toolkit, service: service)
