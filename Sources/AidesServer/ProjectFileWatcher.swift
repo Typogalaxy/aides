@@ -69,15 +69,13 @@ enum ProjectFileWatcher {
             visited += 1
             let itemPath = item.standardizedFileURL.path
             guard visited <= 2_000, !Task.isCancelled, itemPath.hasPrefix(prefix) else { return nil }
-            let name = item.lastPathComponent.lowercased()
-            guard !ignored.contains(name), !ProjectFiles.isProtectedComponent(name) else {
-                paths.skipDescendants()
-                continue
-            }
             guard let metadata = try? item.resourceValues(forKeys: keys) else { return nil }
-            if metadata.isSymbolicLink == true || paths.level >= 4 {
+            let name = item.lastPathComponent.lowercased()
+            let excluded = ignored.contains(name) || ProjectFiles.isProtectedComponent(name)
+            if metadata.isDirectory == true && (excluded || paths.level >= 4) {
                 paths.skipDescendants()
             }
+            if excluded { continue }
             let relative = String(itemPath.dropFirst(prefix.count))
             guard metadata.isSymbolicLink != true, metadata.isRegularFile == true,
                   relative.utf8.count <= 1_024, !relative.contains(where: { $0.isNewline }),
