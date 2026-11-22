@@ -36,6 +36,60 @@ struct ModelClientTests {
         #expect(output.outputTokens == 6)
     }
 
+    @Test func ollamaStreamsVisibleChunksBeforeCompletion() async throws {
+        let chunks = RecordedChunks()
+        let client = ModelClient(exchange: { _ in throw TestError.unexpectedRequest }) { request, receive in
+            let body = try Self.body(request)
+            #expect(body["stream"] as? Bool == true)
+            #expect(body["model"] as? String == "example:8b:local")
+            try await receive(Data("""
+                {"message":{"role":"assistant","content":"","thinking":"hidden"},"done":false}
+                """.utf8))
+            try await receive(Data("""
+                {"message":{"role":"assistant","content":"你好"},"done":false}
+                """.utf8))
+            #expect(await chunks.values == ["你好"])
+            try await receive(Data("""
+                {"message":{"role":"assistant","content":"！"},"done":false}
+                """.utf8))
+            try await receive(Data("""
+                {"message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":11,"eval_count":6}
+                """.utf8))
+            return 325
+        }
+        let output = try await client.generateStreaming(
+            request(.ollama, "http://127.0.0.1:11434", model: "example:8b")
+        ) { text in
+            await chunks.append(text)
+        }
+
+        #expect(await chunks.values == ["你好", "！"])
+        #expect(output.text == "你好！")
+        #expect(output.inputTokens == 11)
+        #expect(output.outputTokens == 6)
+        #expect(output.networkBytes > 325)
+    }
+
+    @Test func ollamaRejectsUnfinishedAndRemoteStreams() async {
+        for body in [
+            """
+            {"message":{"role":"assistant","content":"Partial"},"done":false}
+            """,
+            """
+            {"message":{"role":"assistant","content":"Remote"},"done":true,"remote_host":"https://example.com"}
+            """
+        ] {
+            let client = ModelClient(exchange: { _ in throw TestError.unexpectedRequest }) { _, receive in
+                let data = Data(body.utf8)
+                try await receive(data)
+                return data.count
+            }
+            await #expect(throws: ModelExecutionError.unexpectedResponse) {
+                try await client.generateStreaming(request(.ollama, "http://127.0.0.1:11434")) { _ in }
+            }
+        }
+    }
+
     @Test func cloudOllamaAliasesAreRejected() async {
         let client = ModelClient { _ in throw TestError.unexpectedRequest }
 
@@ -170,4 +224,12 @@ private enum TestError: Error {
 
 private func fixture(_ payload: String, status: Int = 200) -> HTTPPayload {
     HTTPPayload(statusCode: status, body: Data(payload.utf8))
+}
+
+private actor RecordedChunks {
+    private(set) var values: [String] = []
+
+    func append(_ text: String) {
+        values.append(text)
+    }
 }

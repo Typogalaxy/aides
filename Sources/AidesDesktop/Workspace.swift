@@ -21,6 +21,8 @@ final class Workspace {
     var isConnected = false
     var deviceID: UUID?
 
+    private var activeReplyPreview: ReplyPreview?
+    @ObservationIgnored private var replyTask: Task<Void, Never>?
     @ObservationIgnored private var client: ServerClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var hasRestored = false
@@ -108,6 +110,8 @@ final class Workspace {
         let service = ServerClient(endpoint: endpoint, credential: credential)
         let initial: AppState = try await service.get(["state"])
         eventTask?.cancel()
+        replyTask?.cancel()
+        activeReplyPreview = nil
         toolkitNotifications.stop()
         appshots.stop()
         state = initial
@@ -119,6 +123,7 @@ final class Workspace {
         isConnected = true
         connectionError = nil
         startEvents(using: service)
+        startReplyPreviews(using: service)
         fileRelay.start(service)
         computerRelay.start(service)
     }
@@ -131,6 +136,9 @@ final class Workspace {
         eventTask?.cancel()
         eventTask = nil
         client = nil
+        replyTask?.cancel()
+        replyTask = nil
+        activeReplyPreview = nil
         deviceID = nil
         state = AppState()
         memories = []
@@ -183,9 +191,49 @@ final class Workspace {
         }
     }
 
+    func replyPreview(for threadID: UUID) -> ReplyPreview? {
+        guard let preview = activeReplyPreview, preview.threadID == threadID,
+              state.tasks.contains(where: { $0.id == preview.id && $0.status == .running }) else { return nil }
+        return preview
+    }
+
+    private func startReplyPreviews(using service: ServerClient) {
+        replyTask = Task { [weak self] in
+            var received: ReplyPreview?
+            while !Task.isCancelled && self != nil {
+                let query = received.map { preview in
+                    [
+                        URLQueryItem(name: "after", value: preview.attemptID.uuidString),
+                        URLQueryItem(name: "bytes", value: String(preview.text.utf8.count))
+                    ]
+                } ?? []
+                do {
+                    let update: ReplyPreviewUpdate = try await service.get(["reply-preview"], query: query)
+                    guard !Task.isCancelled else { return }
+                    received = update.preview
+                    if let preview = update.preview {
+                        self?.activeReplyPreview = preview
+                    }
+                    // The workspace state replaces the last preview with the saved reply.
+                } catch ServerError.response(404, _) {
+                    return
+                } catch let failure as ServerError where failure.isUnauthorized {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+    }
+
     private func apply(_ newState: AppState) {
         guard newState.revision >= state.revision else { return }
         toolkitNotifications.receive(newState, after: state)
+        if let id = activeReplyPreview?.id,
+           let task = newState.tasks.first(where: { $0.id == id }),
+           task.status != .running && task.status != .queued {
+            activeReplyPreview = nil
+        }
         state = newState
     }
 

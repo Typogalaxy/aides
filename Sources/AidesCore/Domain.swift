@@ -28,9 +28,9 @@ public struct Message: Codable, Identifiable, Sendable {
         _ text: String, role: MessageRole, now: Date = .now,
         scheduleSuggestion: ScheduleSuggestion? = nil, toolkitSuggestion: ToolkitSuggestion? = nil,
         toolkitMailSuggestion: ToolkitMailDraftSuggestion? = nil, notificationKind: NotificationKind? = nil,
-        hasComputerObservation: Bool? = nil
+        hasComputerObservation: Bool? = nil, id: UUID = UUID()
     ) {
-        id = UUID()
+        self.id = id
         self.text = text
         self.role = role
         createdAt = now
@@ -39,6 +39,30 @@ public struct Message: Codable, Identifiable, Sendable {
         self.toolkitMailSuggestion = toolkitMailSuggestion
         self.notificationKind = notificationKind
         self.hasComputerObservation = hasComputerObservation
+    }
+}
+
+public struct ReplyPreview: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let attemptID: UUID
+    public let threadID: UUID
+    public let originMessageID: UUID
+    public let text: String
+
+    public init(id: UUID, attemptID: UUID, threadID: UUID, originMessageID: UUID, text: String) {
+        self.id = id
+        self.attemptID = attemptID
+        self.threadID = threadID
+        self.originMessageID = originMessageID
+        self.text = text
+    }
+}
+
+public struct ReplyPreviewUpdate: Codable, Sendable {
+    public let preview: ReplyPreview?
+
+    public init(preview: ReplyPreview?) {
+        self.preview = preview
     }
 }
 

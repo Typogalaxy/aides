@@ -56,24 +56,60 @@ enum ModelTransport {
         }
     }
 
-    static func decode<Response: Decodable>(_ type: Response.Type, from payload: HTTPPayload) throws -> Response {
-        switch payload.statusCode {
-        case 200:
-            do {
-                return try JSONDecoder().decode(type, from: payload.body)
-            } catch {
+    static func exchangeLines(
+        _ request: URLRequest, receive: @escaping @Sendable (Data) async throws -> Void
+    ) async throws -> Int {
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            guard let response = response as? HTTPURLResponse else {
                 throw ModelExecutionError.unexpectedResponse
             }
-        case 401, 403:
-            throw ModelExecutionError.unauthorized
-        case 429:
-            throw ModelExecutionError.rateLimited
-        case 408, 425, 500...599:
+            try checkStatus(response.statusCode)
+            guard response.expectedContentLength <= maximumResponseBytes else {
+                throw ModelExecutionError.outputLimit
+            }
+
+            var line = Data()
+            var count = 0
+            for try await byte in bytes {
+                count += 1
+                guard count <= maximumResponseBytes else { throw ModelExecutionError.outputLimit }
+                if byte == 10 {
+                    if !line.isEmpty { try await receive(line) }
+                    line.removeAll(keepingCapacity: true)
+                } else {
+                    line.append(byte)
+                }
+            }
+            if !line.isEmpty { try await receive(line) }
+            try Task.checkCancellation()
+            return count
+        } catch let error as ModelExecutionError {
+            throw error
+        } catch {
+            try Task.checkCancellation()
             throw ModelExecutionError.unavailable
-        case 400...499:
-            throw ModelExecutionError.rejected
-        default:
+        }
+    }
+
+    static func decode<Response: Decodable>(_ type: Response.Type, from payload: HTTPPayload) throws -> Response {
+        try checkStatus(payload.statusCode)
+        do {
+            return try JSONDecoder().decode(type, from: payload.body)
+        } catch {
             throw ModelExecutionError.unexpectedResponse
+        }
+    }
+
+    private static func checkStatus(_ status: Int) throws {
+        switch status {
+        case 200: break
+        case 401, 403: throw ModelExecutionError.unauthorized
+        case 429: throw ModelExecutionError.rateLimited
+        case 408, 425, 500...599: throw ModelExecutionError.unavailable
+        case 400...499: throw ModelExecutionError.rejected
+        default: throw ModelExecutionError.unexpectedResponse
         }
     }
 }
