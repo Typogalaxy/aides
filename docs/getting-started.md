@@ -32,7 +32,9 @@ vendor usage limits belong to that official tool. Details are in the
 [macOS packaging and host instructions](../scripts/macos/README.md).
 
 The cloud approval screen shows the task or explicitly selected source
-snapshot. Aides does not attach your general memory or history to a cloud job.
+snapshot. A cloud analysis task can include up to four memory fields that you
+previously marked as shareable and select for that task. Aides checks the scope
+again before dispatch. General conversation history stays in the local lane.
 The policy rejects protected paths and common credential formats; review the
 actual selected contents before authorizing external transmission. No provider
 or payment route changes automatically. A running Worker remains associated
