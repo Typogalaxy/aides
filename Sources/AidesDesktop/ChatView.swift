@@ -8,6 +8,8 @@ struct ChatView: View {
     let showWorker: (UUID) -> Void
     let showComputerUse: () -> Void
 
+    private let conversationWidth: CGFloat = 736
+
     @ViewState private var showsTask = false
     @ViewState private var showsComputerUse = false
     @ViewState private var showsAppshot = false
@@ -182,30 +184,27 @@ struct ChatView: View {
                     )
                     .frame(minHeight: 180)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 22) {
+                    LazyVStack(alignment: .leading, spacing: 44) {
                         ForEach(conversation.messages) { message in
                             VStack(alignment: .leading, spacing: 12) {
-                                ChatMessageView(message: message, conversationTitle: conversation.title)
+                                ChatMessageView(message: message)
                                 if let suggestion = message.scheduleSuggestion {
                                     ScheduleSuggestionView(
                                         workspace: workspace, conversation: conversation,
                                         message: message, suggestion: suggestion
                                     )
-                                    .padding(.leading, 39)
                                 }
                                 if let suggestion = message.toolkitSuggestion {
                                     ToolkitSuggestionView(
                                         workspace: workspace, requestID: message.id, suggestion: suggestion,
                                         unavailable: conversation.archivedAt != nil
                                     )
-                                    .padding(.leading, 39)
                                 }
                                 if let suggestion = message.toolkitMailSuggestion {
                                     ToolkitMailSuggestionView(
                                         workspace: workspace, requestID: message.id, suggestion: suggestion,
                                         unavailable: conversation.archivedAt != nil
                                     )
-                                    .padding(.leading, 39)
                                 }
                             }
                             .contextMenu {
@@ -219,9 +218,9 @@ struct ChatView: View {
                         }
                         Color.clear.frame(height: 1).id("conversation-end")
                     }
-                    .frame(maxWidth: 760)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 22)
+                    .frame(maxWidth: conversationWidth)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 34)
                     .frame(maxWidth: .infinity)
                 }
             }
@@ -236,8 +235,7 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
-            Divider()
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .trailing, spacing: 10) {
                 if let appshot = workspace.appshots.draft {
                     HStack {
                         Button { showsAppshot = true } label: {
@@ -255,8 +253,8 @@ struct ChatView: View {
                     .textFieldStyle(.plain)
                     .lineLimit(2...7)
                     .accessibilityLabel("Message")
-                    .padding(11)
-                    .background(.quaternary.opacity(0.29), in: .rect(cornerRadius: 10))
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 3)
                 HStack {
                     if workspace.appshots.draft == nil && !workspace.fileRelay.manifest.grants.isEmpty {
                         ToolkitFolderPicker(
@@ -305,8 +303,17 @@ struct ChatView: View {
                     .disabled(workspace.isWorking || draft.trimmed.isEmpty)
                 }
             }
-            .frame(maxWidth: 760)
-            .padding(15)
+            .padding(12)
+            .background(.background, in: .rect(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(.separator, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .frame(maxWidth: conversationWidth)
+            .padding(.horizontal, 28)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
             .frame(maxWidth: .infinity)
         }
     }
@@ -314,34 +321,37 @@ struct ChatView: View {
 
 private struct ChatMessageView: View {
     let message: Message
-    let conversationTitle: String
 
-    private var author: String {
-        if message.isUser { return "You" }
-        if message.role == .system { return "System" }
-        return conversationTitle
-    }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Image(systemName: message.isUser ? "person" : (message.role == .system ? "gearshape" : "sparkle"))
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(message.isUser ? Color.secondary : Color.aidesAccent)
-                .frame(width: 28, height: 28)
-                .background(.quaternary.opacity(0.44), in: .rect(cornerRadius: 8))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(author).font(.callout.weight(.semibold))
-                    Text(message.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2).foregroundStyle(.tertiary)
+        Group {
+            if message.isUser {
+                HStack(alignment: .top, spacing: 0) {
+                    Spacer(minLength: 38)
+                    Text(message.text)
+                        .font(.system(size: 16))
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
+                        .foregroundStyle(colorScheme == .dark ? Color(red: 0.86, green: 0.96, blue: 0.89) : Color(red: 0.09, green: 0.22, blue: 0.15))
+                        .background(
+                            colorScheme == .dark ? Color(red: 0.13, green: 0.25, blue: 0.20) : Color(red: 0.85, green: 0.95, blue: 0.89),
+                            in: .rect(cornerRadius: 20)
+                        )
+                        .frame(maxWidth: 514, alignment: .trailing)
                 }
+            } else {
                 Text(message.text)
+                    .font(.system(size: 16))
+                    .lineSpacing(5)
                     .textSelection(.enabled)
-                    .lineSpacing(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .help(message.createdAt.formatted(date: .abbreviated, time: .shortened))
     }
 }
 
