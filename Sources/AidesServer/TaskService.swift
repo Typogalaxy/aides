@@ -7,6 +7,9 @@ extension AidesService {
         let title = try Self.required(input.title, max: 120)
         let instruction = try input.instruction.map { try Self.required($0, max: 20_000) }
         let kind = input.kind ?? .analysis
+        let mailGrant = try await toolkitMailGrant(
+            input.toolkitMailAccountID, folder: input.toolkitResourceID, deviceID: deviceID
+        )
         guard kind == .analysis || kind == .reminder else {
             throw Abort(.badRequest, reason: "Choose analysis or reminder for a standalone task.")
         }
@@ -17,6 +20,13 @@ extension AidesService {
                 title: title, instruction: instruction, threadID: scope.threadID,
                 projectID: scope.projectID, profile: profile, kind: kind, scheduledAt: input.scheduledAt
             )
+            if let mailGrant {
+                guard kind == .analysis, profile?.kind.isLocal == true,
+                      state.app.devices.contains(where: { $0.id == deviceID }) else {
+                    throw Abort(.forbidden, reason: "A Toolkit mail grant requires a local analysis Worker.")
+                }
+                task.toolkitMailGrant = mailGrant
+            }
             if input.toolkitResourceID != nil {
                 guard kind == .analysis, profile?.kind.isLocal == true else {
                     throw Abort(.forbidden, reason: "Toolkit folder grants require a local analysis Worker.")

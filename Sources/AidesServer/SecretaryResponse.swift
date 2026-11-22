@@ -5,6 +5,7 @@ struct SecretaryResponse: Decodable, Sendable {
     let text: String
     let schedule: ScheduleSuggestion?
     var toolkit: ToolkitSuggestion? = nil
+    var mailDraft: ToolkitMailDraftSuggestion? = nil
 
     static func instructions() -> String {
         let now = ISO8601DateFormatter().string(from: .now)
@@ -25,7 +26,7 @@ struct SecretaryResponse: Decodable, Sendable {
               !result.text.isEmpty else { return SecretaryResponse(text: value, schedule: nil) }
         return SecretaryResponse(
             text: result.text, schedule: result.schedule.flatMap { $0.isValid(after: now) ? $0 : nil },
-            toolkit: result.toolkit
+            toolkit: result.toolkit, mailDraft: result.mailDraft
         )
     }
 }

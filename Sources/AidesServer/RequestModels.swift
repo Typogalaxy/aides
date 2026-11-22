@@ -9,6 +9,7 @@ struct NewThread: Decodable { let title: String; let role: ConversationRole; let
 struct NewMessage: Decodable {
     let text: String
     let toolkitResourceID: UUID?
+    let toolkitMailAccountID: String?
 }
 struct ArchiveThread: Decodable { let report: String }
 struct NewProject: Decodable { let name: String; let directory: String? }
@@ -22,6 +23,7 @@ struct NewTask: Decodable {
     let kind: WorkKind?
     let sharedMemoryIDs: [UUID]?
     let toolkitResourceID: UUID?
+    let toolkitMailAccountID: String?
     let toolkitInvocationID: UUID?
     let toolkitLocalSelection: ToolkitLocalSelection?
 }

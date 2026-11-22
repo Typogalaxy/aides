@@ -161,6 +161,10 @@ actor JobRunner {
            let folder = AidesService.activeToolkitFolder(for: grant, in: snapshot) {
             system += "\n" + ToolkitSuggestions.instructions(for: folder)
         }
+        if model.kind.isLocal, let grant = work.toolkitMailGrant,
+           snapshot.app.devices.contains(where: { $0.id == grant.requestedByDeviceID }) {
+            system += "\n" + ToolkitMailSuggestions.instructions(account: grant.account)
+        }
         if let reference = work.toolkitReceipt {
             let current = await store.snapshot()
             guard model.kind.isLocal, let job = AidesService.activeToolkitReceipt(for: reference, in: current),
@@ -229,21 +233,23 @@ actor JobRunner {
                 let canSuggestSchedule = work.kind == .conversation && threadRole == .secretary
                 let folder = work.toolkitGrant.flatMap { AidesService.activeToolkitFolder(for: $0, in: state) }
                 let isLocal = state.app.models.first(where: { $0.id == work.modelID })?.kind.isLocal == true
-                let reply = canSuggestSchedule || work.toolkitGrant != nil
+                let reply = canSuggestSchedule || work.toolkitGrant != nil || work.toolkitMailGrant != nil
                     ? SecretaryResponse.parse(output.text)
                     : SecretaryResponse(text: output.text, schedule: nil)
                 let suggestion = isLocal ? ToolkitSuggestions.validProposal(reply.toolkit, for: folder) : nil
-                if suggestion != nil { state.app.tasks[index].toolkitSuggestion = suggestion }
+                let mail = isLocal ? ToolkitMailSuggestions.validProposal(reply.mailDraft, for: work.toolkitMailGrant, in: state) : nil
+                state.app.tasks[index].toolkitSuggestion = suggestion
+                state.app.tasks[index].toolkitMailSuggestion = mail
                 state.app.tasks[index].result = proposal?.summary ?? reply.text
                 if (work.kind == .conversation || work.kind == .reminder),
                    let i = state.app.threads.firstIndex(where: { $0.id == work.threadID }) {
                     let message = Message(
                         reply.text, role: .assistant,
-                        scheduleSuggestion: canSuggestSchedule && suggestion == nil ? reply.schedule : nil,
-                        toolkitSuggestion: suggestion,
+                        scheduleSuggestion: canSuggestSchedule && suggestion == nil && mail == nil ? reply.schedule : nil,
+                        toolkitSuggestion: suggestion, toolkitMailSuggestion: mail,
                         notificationKind: work.kind == .reminder ? .reminder : nil
                     )
-                    if suggestion != nil { state.app.tasks[index].toolkitSuggestionMessageID = message.id }
+                    if suggestion != nil || mail != nil { state.app.tasks[index].toolkitSuggestionMessageID = message.id }
                     let origin = state.replyMessages[work.id]
                     if let j = state.app.threads[i].messages.firstIndex(where: { $0.id == origin }) {
                         state.app.threads[i].messages.insert(message, at: j + 1)

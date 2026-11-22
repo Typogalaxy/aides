@@ -123,6 +123,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     registerToolkitLocalRoutes(toolkit, service: service)
     registerToolkitCommandRoutes(toolkit, service: service)
     registerToolkitMailRoutes(toolkit, service: service)
+    registerToolkitMailSuggestionRoutes(toolkit, service: service)
     registerToolkitGitHubRoutes(toolkit, service: service)
     registerToolkitGitHubWriteRoutes(toolkit, service: service)
     registerToolkitFeedRoutes(toolkit, service: service)
