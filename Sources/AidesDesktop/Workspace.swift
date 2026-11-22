@@ -307,6 +307,12 @@ final class Workspace {
         return created
     }
 
+    func confirmSchedule(suggestedBy messageID: UUID) async {
+        await perform {
+            try await update(["schedules", "suggestions", messageID.uuidString, "accept"], EmptyRequest())
+        }
+    }
+
     func setSchedulePaused(_ id: UUID, paused: Bool) async {
         await perform { try await update(["schedules", id.uuidString, "pause"], PauseRequest(paused: paused)) }
     }

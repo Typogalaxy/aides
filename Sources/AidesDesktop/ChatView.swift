@@ -151,8 +151,17 @@ struct ChatView: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: 22) {
                         ForEach(conversation.messages) { message in
-                            ChatMessageView(message: message, conversationTitle: conversation.title)
-                                .contextMenu {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ChatMessageView(message: message, conversationTitle: conversation.title)
+                                if let suggestion = message.scheduleSuggestion {
+                                    ScheduleSuggestionView(
+                                        workspace: workspace, conversation: conversation,
+                                        message: message, suggestion: suggestion
+                                    )
+                                    .padding(.leading, 39)
+                                }
+                            }
+                            .contextMenu {
                                     if message.isUser {
                                         Button("Remember this message…") {
                                             sourceMessage = message
@@ -240,6 +249,58 @@ private struct ChatMessageView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+private struct ScheduleSuggestionView: View {
+    let workspace: Workspace
+    let conversation: Conversation
+    let message: Message
+    let suggestion: ScheduleSuggestion
+
+    private var date: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.timeZone = TimeZone(identifier: suggestion.timeZone)
+        return formatter.string(from: suggestion.firstRun)
+    }
+
+    private var scheduled: Bool {
+        workspace.state.schedules.contains {
+            $0.threadID == conversation.id && $0.title == suggestion.title &&
+                $0.firstRun == suggestion.firstRun && $0.timeZone == suggestion.timeZone &&
+                $0.repeatRule == suggestion.repeatRule && $0.kind == suggestion.kind
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(suggestion.title, systemImage: "calendar.badge.clock")
+                .font(.callout.weight(.medium))
+            Text("\(suggestion.kind == .reminder ? "Reminder" : "Analysis") · \(suggestion.repeatRule.rawValue.capitalized)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(date) · \(suggestion.timeZone)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if scheduled {
+                Label("Scheduled", systemImage: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            } else if conversation.archivedAt == nil && suggestion.isValid(after: .now) {
+                Button("Confirm schedule") {
+                    Task { await workspace.confirmSchedule(suggestedBy: message.id) }
+                }
+                .disabled(workspace.isWorking)
+            } else {
+                Text("Schedule suggestion expired or archived.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
     }
 }
 
