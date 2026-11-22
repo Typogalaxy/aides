@@ -3,7 +3,7 @@ import AidesExecution
 import Foundation
 import Vapor
 
-struct ToolkitCommandProfile: Decodable, Sendable {
+struct ToolkitCommandProfile: Codable, Sendable {
     let id: String
     let label: String
     let projectID: UUID
@@ -11,7 +11,15 @@ struct ToolkitCommandProfile: Decodable, Sendable {
     let arguments: [String]
     let timeoutSeconds: Int?
 
-    var summary: ToolkitCommand { ToolkitCommand(id: id, label: label, projectID: projectID) }
+    func summary() throws -> ToolkitCommand {
+        let encoder = AppJSON.encoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let revision = Host.digest(String(decoding: try encoder.encode(self), as: UTF8.self))
+        return ToolkitCommand(
+            id: id, label: label, projectID: projectID, executable: executable,
+            arguments: arguments, timeoutSeconds: timeoutSeconds ?? 30, revision: revision
+        )
+    }
 
     static func configured(in directory: URL) throws -> [Self] {
         let raw = try ToolkitHostConfiguration(directory: directory).read("commands.json")
@@ -30,7 +38,10 @@ struct ToolkitCommandProfile: Decodable, Sendable {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         return (1...48).contains(id.utf8.count) && id.unicodeScalars.allSatisfy(allowed.contains)
             && (1...80).contains(label.utf8.count) && executable.hasPrefix("/") && !executable.utf8.contains(0)
-            && arguments.count <= 24 && arguments.allSatisfy { $0.utf8.count <= 512 && !$0.utf8.contains(0) }
+            && executable.utf8.count <= 1_024
+            && arguments.count <= 24 && arguments.allSatisfy {
+                $0.utf8.count <= 512 && !$0.utf8.contains(0) && (try? CloudBoundary.validate($0)) != nil
+            }
             && (1...120).contains(timeoutSeconds ?? 30)
     }
 }
@@ -38,11 +49,12 @@ struct ToolkitCommandProfile: Decodable, Sendable {
 private struct StartToolkitCommand: Decodable, Sendable {
     let id: UUID
     let approved: Bool
+    let revision: String
 }
 
 actor ToolkitCommandJobs {
     private let store: StateStore<ServerState>
-    private var running: Task<Void, Never>?
+    private var running: (id: UUID, task: Task<Void, Never>)?
 
     init(store: StateStore<ServerState>) { self.store = store }
 
@@ -50,11 +62,16 @@ actor ToolkitCommandJobs {
         _ input: StartToolkitCommand, profile: ToolkitCommandProfile, deviceID: UUID
     ) async throws -> ToolkitCommandRun {
         guard input.approved else { throw Abort(.forbidden, reason: "Confirm before starting this command.") }
+        let summary = try profile.summary()
         let created = try await store.update { state -> (ToolkitCommandRun, URL?) in
             guard state.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
             if let prior = state.toolkitCommandRuns?[input.id] {
-                guard prior.commandID == profile.id, prior.requestedByDeviceID == deviceID else { throw Abort(.conflict) }
+                guard prior.commandID == profile.id, prior.requestedByDeviceID == deviceID,
+                      prior.revision == input.revision else { throw Abort(.conflict) }
                 return (prior, nil)
+            }
+            guard summary.revision == input.revision else {
+                throw Abort(.conflict, reason: "The configured command changed. Refresh and review it again.")
             }
             guard state.toolkitCommandRuns?.values.contains(where: { $0.status.isActive }) != true else {
                 throw Abort(.conflict, reason: "Another Toolkit command is still running.")
@@ -70,32 +87,47 @@ actor ToolkitCommandJobs {
                   FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 throw Abort(.conflict, reason: "The approved project directory has changed.")
             }
-            let run = ToolkitCommandRun(id: input.id, commandID: profile.id, requestedByDeviceID: deviceID)
+            let run = ToolkitCommandRun(
+                id: input.id, commandID: profile.id, requestedByDeviceID: deviceID, revision: input.revision
+            )
             var runs = state.toolkitCommandRuns ?? [:]
             runs[input.id] = run
             state.toolkitCommandRuns = runs
             return (run, directory)
         }
         if let directory = created.1 {
-            running = Task { await execute(created.0.id, profile: profile, directory: directory) }
+            let id = created.0.id
+            running = (id, Task { await execute(id, profile: profile, directory: directory) })
         }
         return created.0
     }
 
     func cancel(_ id: UUID, deviceID: UUID) async throws -> ToolkitCommandRun {
-        let snapshot = await store.snapshot()
-        guard snapshot.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
-        guard let run = snapshot.toolkitCommandRuns?[id] else { throw Abort(.notFound) }
-        if run.status == .running { running?.cancel() }
+        let run = try await store.update { state in
+            guard state.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
+            guard var run = state.toolkitCommandRuns?[id] else { throw Abort(.notFound) }
+            if run.status == .running {
+                run.stopRequested = true
+                state.toolkitCommandRuns?[id] = run
+            }
+            return run
+        }
+        if run.status == .running, running?.id == id { running?.task.cancel() }
         return run
     }
 
     private func execute(_ id: UUID, profile: ToolkitCommandProfile, directory: URL) async {
+        defer { if running?.id == id { running = nil } }
         let status: ToolkitInvocationStatus
         let output: String?
         let exitCode: Int32?
         let message: String?
         do {
+            let current = await store.snapshot()
+            guard let run = current.toolkitCommandRuns?[id], run.stopRequested != true,
+                  current.app.devices.contains(where: { $0.id == run.requestedByDeviceID }) else {
+                throw CancellationError()
+            }
             let result = try await ToolkitCommandProcess.run(
                 executable: URL(fileURLWithPath: profile.executable),
                 arguments: profile.arguments, directory: directory,
@@ -138,7 +170,7 @@ func registerToolkitCommandRoutes(_ toolkit: RoutesBuilder, service: AidesServic
     let commands = toolkit.grouped("commands")
     commands.get { request in
         _ = try await service.authenticatedDevice(request)
-        return try json(ToolkitCommandProfile.configured(in: service.host.directory).map(\.summary))
+        return try json(ToolkitCommandProfile.configured(in: service.host.directory).map { try $0.summary() })
     }
     commands.get("runs") { request in
         _ = try await service.authenticatedDevice(request)

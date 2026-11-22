@@ -54,7 +54,10 @@ struct ToolkitCommandsView: View {
                             }
                         }
                         if run.status.isActive {
-                            Button("Cancel run", role: .destructive) { Task { await cancel(run) } }
+                            Button(run.stopRequested == true ? "Stop requested" : "Cancel run", role: .destructive) {
+                                Task { await cancel(run) }
+                            }
+                            .disabled(run.stopRequested == true)
                         }
                     }
                     .padding(.vertical, 4)
@@ -83,7 +86,8 @@ struct ToolkitCommandsView: View {
         ), presenting: confirming) { command in
             Button("Confirm and run") { Task { await run(command) } }
         } message: { command in
-            Text("\(command.label) · \(projectName(command))")
+            let arguments = (try? JSONEncoder().encode(command.arguments)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+            Text("\(command.label) · \(projectName(command))\n\(command.executable)\nArguments: \(arguments)\nTimeout: \(command.timeoutSeconds) seconds")
         }
     }
 
@@ -101,13 +105,13 @@ struct ToolkitCommandsView: View {
 
     private func run(_ command: ToolkitCommand) async {
         await perform {
-            let id = pending[command.id] ?? UUID()
-            pending[command.id] = id
+            let id = pending[command.revision] ?? UUID()
+            pending[command.revision] = id
             let receipt: ToolkitCommandRun = try await workspace.toolkitPost(
-                ["commands", command.id, "run"], body: StartToolkitCommand(id: id, approved: true)
+                ["commands", command.id, "run"], body: StartToolkitCommand(id: id, approved: true, revision: command.revision)
             )
             update(receipt)
-            pending.removeValue(forKey: command.id)
+            pending.removeValue(forKey: command.revision)
         }
     }
 
@@ -142,6 +146,7 @@ struct ToolkitCommandsView: View {
 private struct StartToolkitCommand: Encodable, Sendable {
     let id: UUID
     let approved: Bool
+    let revision: String
 }
 
 private struct CancelToolkitCommand: Encodable, Sendable {}
