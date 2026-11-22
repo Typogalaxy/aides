@@ -38,6 +38,16 @@ final class Workspace {
         }
     }
 
+    func reconnect() async {
+        await perform {
+            let endpoint = try ServerEndpoint(address)
+            guard let credential = try CredentialStore.read(for: endpoint) else {
+                throw ServerError.response(status: 401, message: "Pair this Mac first.")
+            }
+            try await connect(endpoint, credential: credential)
+        }
+    }
+
     func startLocalService() async {
         await perform {
             let endpoint = try ServerEndpoint(ServerEndpoint.localAddress)
@@ -205,6 +215,15 @@ final class Workspace {
         return sent
     }
 
+    func archive(_ id: UUID, report: String) async -> Bool {
+        var archived = false
+        await perform {
+            try await update(["threads", id.uuidString, "archive"], ArchiveRequest(report: report))
+            archived = true
+        }
+        return archived
+    }
+
     func createProject(_ name: String, directory: String?) async -> UUID? {
         var created: UUID?
         await perform {
@@ -223,6 +242,23 @@ final class Workspace {
             created = state.tasks.last { $0.title == request.title && !known.contains($0.id) }?.id
         }
         return created
+    }
+
+    func createSchedule(_ request: ScheduleRequest) async -> Bool {
+        var created = false
+        await perform {
+            try await update(["schedules"], request)
+            created = true
+        }
+        return created
+    }
+
+    func setSchedulePaused(_ id: UUID, paused: Bool) async {
+        await perform { try await update(["schedules", id.uuidString, "pause"], PauseRequest(paused: paused)) }
+    }
+
+    func resume(_ id: UUID) async {
+        await perform { try await update(["tasks", id.uuidString, "resume"], EmptyRequest()) }
     }
 
     func cancel(_ taskID: UUID) async {
@@ -290,17 +326,31 @@ private struct HealthResponse: Decodable & Sendable { let status: String }
 private struct PairRequest: Encodable { let code: String; let name: String }
 private struct InviteResponse: Decodable & Sendable { let code: String }
 private struct ThreadRequest: Encodable { let title: String; let role: String; let projectID: UUID? }
+private struct ArchiveRequest: Encodable { let report: String }
 private struct MessageRequest: Encodable { let text: String }
 private struct ProjectRequest: Encodable { let name: String; let directory: String? }
+private struct PauseRequest: Encodable { let paused: Bool }
 private struct ApprovalRequest: Encodable { let approved: Bool }
 private struct SettingsRequest: Encodable { let defaultModelID: UUID?; let preference: String }
 
 struct TaskRequest: Encodable {
     let title: String
+    let instruction: String?
     let threadID: UUID?
     let projectID: UUID?
     let modelID: UUID?
     let scheduledAt: Date?
+}
+
+struct ScheduleRequest: Encodable {
+    let title: String
+    let threadID: UUID?
+    let projectID: UUID?
+    let modelID: UUID?
+    let kind: String
+    let repeatRule: String
+    let timeZone: String
+    let firstRun: Date
 }
 
 struct ModelRequest: Encodable {

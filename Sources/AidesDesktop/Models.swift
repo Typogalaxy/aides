@@ -5,6 +5,7 @@ struct DesktopState: Decodable, Sendable {
     var threads: [Conversation] = []
     var projects: [Project] = []
     var tasks: [WorkerTask] = []
+    var schedules: [WorkSchedule] = []
     var models: [ModelConfiguration] = []
     var devices: [PairedDevice] = []
     var settings = ServerSettings()
@@ -17,6 +18,8 @@ struct Conversation: Decodable, Identifiable, Sendable {
     let role: String
     let projectID: UUID?
     let messages: [ChatMessage]
+    let archivedAt: Date?
+    let report: String?
 
     var icon: String {
         switch role {
@@ -47,6 +50,7 @@ struct Project: Decodable, Identifiable, Sendable {
 struct WorkerTask: Decodable, Identifiable, Sendable {
     let id: UUID
     let title: String
+    let instruction: String?
     let threadID: UUID?
     let projectID: UUID?
     let modelID: UUID?
@@ -65,6 +69,16 @@ struct WorkerTask: Decodable, Identifiable, Sendable {
         default: status.capitalized
         }
     }
+}
+
+struct WorkSchedule: Decodable, Identifiable, Sendable {
+    let id: UUID
+    let title: String
+    let kind: String
+    let repeatRule: String
+    let timeZone: String
+    let nextRun: Date?
+    let paused: Bool
 }
 
 struct ModelConfiguration: Decodable, Identifiable, Sendable {
