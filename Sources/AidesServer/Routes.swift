@@ -41,7 +41,19 @@ func configureRoutes(_ app: Application, service: AidesService) {
     }
     api.on(.POST, "threads", ":id", "messages", body: .collect(maxSize: "768kb")) { request in
         let device = try await service.authenticatedDevice(request)
-        return try await json(service.message(in: id(request), input: decode(NewMessage.self, request), deviceID: device))
+        let input = try decode(NewMessage.self, request)
+        guard input.attachments?.isEmpty != false else {
+            throw Abort(.badRequest, reason: "Use the file attachment endpoint to send files or folders.")
+        }
+        return try await json(service.message(in: id(request), input: input, deviceID: device))
+    }
+    api.on(.POST, "threads", ":id", "attachment-messages", body: .collect(maxSize: "320kb")) { request in
+        let device = try await service.authenticatedDevice(request)
+        let input = try decode(NewMessage.self, request)
+        guard input.attachments?.isEmpty == false else {
+            throw Abort(.badRequest, reason: "Attach at least one file or folder.")
+        }
+        return try await json(service.message(in: id(request), input: input, deviceID: device))
     }
     api.post("threads", ":id", "archive") { request in
         _ = try await service.authenticatedDevice(request)

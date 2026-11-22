@@ -271,15 +271,15 @@ final class Workspace {
 
     func send(
         _ message: String, in conversationID: UUID, toolkitResourceID: UUID? = nil, toolkitMailAccountID: String? = nil,
-        computerObservation: ComputerObservation? = nil
+        computerObservation: ComputerObservation? = nil, attachments: [ChatFileAttachment] = []
     ) async -> Bool {
         var sent = false
         await perform {
             try await update(
-                ["threads", conversationID.uuidString, "messages"],
+                ["threads", conversationID.uuidString, attachments.isEmpty ? "messages" : "attachment-messages"],
                 MessageRequest(
                     text: message, toolkitResourceID: toolkitResourceID, toolkitMailAccountID: toolkitMailAccountID,
-                    computerObservation: computerObservation
+                    computerObservation: computerObservation, attachments: attachments.isEmpty ? nil : attachments
                 )
             )
             sent = true
@@ -511,6 +511,7 @@ private struct MessageRequest: Encodable {
     let toolkitResourceID: UUID?
     let toolkitMailAccountID: String?
     let computerObservation: ComputerObservation?
+    let attachments: [ChatFileAttachment]?
 }
 private struct ApplyCodeProposalRequest: Encodable { let path: String }
 private struct ProjectWatchRequest: Encodable { let enabled: Bool }

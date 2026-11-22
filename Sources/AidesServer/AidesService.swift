@@ -93,12 +93,16 @@ struct AidesService: Sendable {
     }
 
     func revoke(_ id: UUID) async throws -> AppState {
-        let app = try await change { state in
+        let (app, running) = try await store.update { state in
             state.app.devices.removeAll { $0.id == id }
             state.tokenOwners = state.tokenOwners.filter { $0.value != id }
             Self.revokeDeviceFileAccess(deviceID: id, in: &state)
             ComputerRuns.revoke(deviceID: id, in: &state)
+            let running = state.revokeChatAttachments(from: id)
+            state.revise()
+            return (state.app, running)
         }
+        for taskID in running { await jobs.cancel(taskID) }
         await computer.reconcileRevocation(of: id)
         return app
     }
@@ -155,10 +159,23 @@ struct AidesService: Sendable {
 
     func message(in id: UUID, input: NewMessage, deviceID: UUID) async throws -> AppState {
         let text = try Self.required(input.text, max: 20_000)
+        let attachments = input.attachments ?? []
+        if !attachments.isEmpty {
+            do { try ChatFileAttachment.validate(attachments) } catch {
+                throw Abort(.badRequest, reason: error.localizedDescription)
+            }
+            guard input.toolkitResourceID == nil, input.toolkitMailAccountID == nil, input.computerObservation == nil else {
+                throw Abort(.badRequest, reason: "Send files and folders separately from Toolkit resources and window snapshots.")
+            }
+        }
         let mailGrant = try await toolkitMailGrant(
             input.toolkitMailAccountID, folder: input.toolkitResourceID, deviceID: deviceID
         )
-        let message = Message(text, role: .user, hasComputerObservation: input.computerObservation == nil ? nil : true)
+        let labels = attachments.map(\.label)
+        let message = Message(
+            text, role: .user, hasComputerObservation: input.computerObservation == nil ? nil : true,
+            attachments: labels.isEmpty ? nil : labels
+        )
         if let observation = input.computerObservation {
             guard input.toolkitResourceID == nil, mailGrant == nil,
                   observation.isValid(allowImages: true, expectedAppID: observation.appID) else {
@@ -172,12 +189,29 @@ struct AidesService: Sendable {
                     throw Abort(.notFound)
                 }
                 let toolkitGrant = try Self.makeToolkitGrant(input.toolkitResourceID, deviceID: deviceID, in: state)
-                if mailGrant != nil || input.computerObservation != nil {
+                if mailGrant != nil || input.computerObservation != nil || !attachments.isEmpty {
                     guard state.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
                 }
                 if input.computerObservation != nil {
                     guard state.app.models.contains(where: { $0.id == state.app.settings.defaultModelID && $0.kind == .ollama }) else {
                         throw Abort(.badRequest, reason: "Select a local Ollama model before attaching a window.")
+                    }
+                }
+                if !attachments.isEmpty {
+                    let ids = Set(labels.map(\.id))
+                    if let existing = state.app.threads[index].messages.first(where: { previous in
+                        previous.attachments?.contains(where: { ids.contains($0.id) }) == true
+                    }) {
+                        guard existing.text == text, existing.attachments == labels else {
+                            throw Abort(.conflict, reason: "Select the files and folders again before sending another message.")
+                        }
+                        return
+                    }
+                    guard state.app.models.contains(where: { $0.id == state.app.settings.defaultModelID && $0.kind == .ollama }) else {
+                        throw Abort(.badRequest, reason: "Select a local Ollama model before attaching files or folders.")
+                    }
+                    guard (state.pendingChatAttachments?.count ?? 0) < PendingChatAttachments.maximumPendingMessages else {
+                        throw Abort(.conflict, reason: "Finish or cancel some existing messages with attachments and try again.")
                     }
                 }
                 state.app.threads[index].messages.append(message)
@@ -194,6 +228,10 @@ struct AidesService: Sendable {
                 task.toolkitMailGrant = mailGrant
                 state.app.tasks.append(task)
                 state.replyMessages[task.id] = message.id
+                if !attachments.isEmpty {
+                    if state.pendingChatAttachments == nil { state.pendingChatAttachments = [:] }
+                    state.pendingChatAttachments?[task.id] = PendingChatAttachments(deviceID: deviceID, files: attachments)
+                }
             }
         } catch {
             if input.computerObservation != nil { await jobs.discardComputerObservation(message.id) }

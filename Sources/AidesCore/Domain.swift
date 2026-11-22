@@ -23,12 +23,13 @@ public struct Message: Codable, Identifiable, Sendable {
     public let toolkitMailSuggestion: ToolkitMailDraftSuggestion?
     public let notificationKind: NotificationKind?
     public let hasComputerObservation: Bool?
+    public let attachments: [ChatAttachmentLabel]?
 
     public init(
         _ text: String, role: MessageRole, now: Date = .now,
         scheduleSuggestion: ScheduleSuggestion? = nil, toolkitSuggestion: ToolkitSuggestion? = nil,
         toolkitMailSuggestion: ToolkitMailDraftSuggestion? = nil, notificationKind: NotificationKind? = nil,
-        hasComputerObservation: Bool? = nil, id: UUID = UUID()
+        hasComputerObservation: Bool? = nil, attachments: [ChatAttachmentLabel]? = nil, id: UUID = UUID()
     ) {
         self.id = id
         self.text = text
@@ -39,6 +40,7 @@ public struct Message: Codable, Identifiable, Sendable {
         self.toolkitMailSuggestion = toolkitMailSuggestion
         self.notificationKind = notificationKind
         self.hasComputerObservation = hasComputerObservation
+        self.attachments = attachments
     }
 }
 
