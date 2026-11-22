@@ -70,7 +70,7 @@ public struct ToolkitGitHubConnector: Sendable {
         }
     }
 
-    private static func isPathComponent(_ value: String) -> Bool {
+    static func isPathComponent(_ value: String) -> Bool {
         !value.isEmpty && value != "." && value != ".." && value.utf8.count <= 100 &&
             value.utf8.allSatisfy("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-".utf8.contains)
     }
@@ -140,7 +140,7 @@ private struct GitHubWorkflowRuns: Decodable {
     private enum CodingKeys: String, CodingKey { case runs = "workflow_runs" }
 }
 
-private func githubPage(_ repository: ToolkitGitHubRepository, _ path: String) throws -> URL {
+func githubPage(_ repository: ToolkitGitHubRepository, _ path: String) throws -> URL {
     guard let url = URL(string: "https://github.com/\(repository.owner)/\(repository.name)/" + path) else {
         throw ToolkitRemoteError.unexpectedResponse
     }

@@ -25,3 +25,19 @@ bounded to one page per request and can be viewed on paired devices.
 [Issues API](https://docs.github.com/en/rest/issues/issues#list-repository-issues) ·
 [Pull requests API](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests) ·
 [Workflow runs API](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository)
+
+## Create an issue or pull request
+
+Set the repository's `allowedWrites` to `["issue"]`, `["pullRequest"]` or
+`["issue", "pullRequest"]` to enable the corresponding actions. A protected
+token for that repository is required even for public repositories. Give a
+fine-grained token **Issues** write permission to create issues or **Pull
+requests** write permission to open pull requests. A PR uses two existing
+branches in its configured repository. [Create an issue](https://docs.github.com/en/rest/issues/issues#create-an-issue) · [Create a pull request](https://docs.github.com/en/rest/pulls/pulls#create-a-pull-request)
+
+Prepare the exact title, body and branches in Toolkit. The server binds them
+to the selected repository and records a pending receipt. Review and confirm
+before publishing. Aides rechecks the host configuration and repository before
+dispatch. If confirmation of the result is interrupted, check the repository
+before starting another request. Repeating the same approval returns the
+recorded state.

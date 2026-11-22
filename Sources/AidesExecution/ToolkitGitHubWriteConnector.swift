@@ -23,7 +23,9 @@ public struct ToolkitGitHubWriteConnector: Sendable {
         _ input: ToolkitGitHubWriteRequest, repository: ToolkitGitHubRepository, token: String
     ) async throws -> ToolkitGitHubWriteResult {
         guard input.isValid, input.repositoryID == repository.id, !token.isEmpty,
-              Self.isPathComponent(repository.owner), Self.isPathComponent(repository.name) else {
+              repository.available, repository.allowedWrites?.contains(input.kind) == true,
+              ToolkitGitHubConnector.isPathComponent(repository.owner),
+              ToolkitGitHubConnector.isPathComponent(repository.name) else {
             throw ToolkitRemoteError.rejected
         }
         let collection = input.kind == .issue ? "issues" : "pulls"
@@ -44,16 +46,11 @@ public struct ToolkitGitHubWriteConnector: Sendable {
         ))
 
         let data = try await exchange(request)
-        guard let created = try? JSONDecoder().decode(Receipt.self, from: data), created.number > 0,
-              let page = URL(string: "https://github.com/\(repoPath)/\(input.kind == .issue ? "issues" : "pull")/\(created.number)")
-        else { throw ToolkitRemoteError.unexpectedResponse }
-        return ToolkitGitHubWriteResult(number: created.number, url: page)
-    }
-
-    private static func isPathComponent(_ value: String) -> Bool {
-        let allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
-        return (1...100).contains(value.utf8.count) && value != "." && value != ".." &&
-            value.utf8.allSatisfy(allowed.utf8.contains)
+        guard let created = try? JSONDecoder().decode(Receipt.self, from: data), created.number > 0 else {
+            throw ToolkitRemoteError.unexpectedResponse
+        }
+        let collectionPath = input.kind == .issue ? "issues" : "pull"
+        return ToolkitGitHubWriteResult(number: created.number, url: try githubPage(repository, "\(collectionPath)/\(created.number)"))
     }
 
     private struct Payload: Encodable {
