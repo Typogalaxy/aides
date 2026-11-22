@@ -24,10 +24,11 @@ AIDES_CODEX_PATH="$(command -v codex)" \
   AIDES_CLAUDE_CODE_PATH="$(command -v claude)" "$helper" start
 ```
 
-Omit either variable if you only use one tool. The paths come from the server
-Mac's environment and are stored in its per-user launch agent. Use the locally
-installed executables you trust. Login credentials remain under each official
-tool's control.
+Start with the variable for each tool you use. The server Mac stores these
+paths in its per-user launch agent, so a later restart from the app keeps
+them. To clear a path, stop the service and start it once with that variable
+set to an empty value. Login credentials remain under each official tool's
+control.
 
 ## Connect another Mac privately
 

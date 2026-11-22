@@ -40,12 +40,16 @@ case "${1:-}" in
         plutil -insert EnvironmentVariables.AIDES_PORT -string "$port" "$staged"
         plutil -insert EnvironmentVariables.PATH -string "$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" "$staged"
         for variable in AIDES_CODEX_PATH AIDES_CLAUDE_CODE_PATH; do
-            executable="${!variable:-}"
-            if [[ -n "$executable" ]]; then
-                if [[ "$executable" != /* || ! -f "$executable" || ! -x "$executable" ]]; then
+            if [[ "${!variable+x}" == x ]]; then
+                executable="${!variable}"
+                if [[ -n "$executable" && ( "$executable" != /* || ! -f "$executable" || ! -x "$executable" ) ]]; then
                     printf 'Set %s to an installed, executable CLI on this Mac.\n' "$variable" >&2
                     exit 64
                 fi
+            else
+                executable="$(plutil -extract "EnvironmentVariables.$variable" raw "$configuration" 2>/dev/null || true)"
+            fi
+            if [[ -n "$executable" ]]; then
                 plutil -insert "EnvironmentVariables.$variable" -string "$executable" "$staged"
             fi
         done
