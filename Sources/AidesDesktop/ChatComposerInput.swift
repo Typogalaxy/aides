@@ -10,7 +10,7 @@ struct ChatComposerInput: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let field = NSTextView(usingTextLayoutManager: false)
+        let field = ComposerTextView(usingTextLayoutManager: false)
         field.isRichText = false
         field.isAutomaticQuoteSubstitutionEnabled = false
         field.isAutomaticDashSubstitutionEnabled = false
@@ -24,6 +24,7 @@ struct ChatComposerInput: NSViewRepresentable {
         field.textContainer?.lineFragmentPadding = 0
         field.textContainerInset = .zero
         field.delegate = context.coordinator
+        field.placeholder = placeholder
         field.setAccessibilityLabel(placeholder)
 
         let scroll = NSScrollView()
@@ -36,10 +37,14 @@ struct ChatComposerInput: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.input = self
-        guard let field = scroll.documentView as? NSTextView else { return }
+        guard let field = scroll.documentView as? ComposerTextView else { return }
+        field.placeholder = placeholder
         field.setAccessibilityLabel(placeholder)
         let font = NSFont.systemFont(ofSize: fontSize)
-        if field.font != font { field.font = font }
+        if field.font != font {
+            field.font = font
+            field.needsDisplay = true
+        }
         if !field.hasMarkedText(), field.string != text {
             field.string = text
         }
@@ -92,5 +97,39 @@ struct ChatComposerInput: NSViewRepresentable {
                 return false
             }
         }
+    }
+}
+
+final class ComposerTextView: NSTextView {
+    var placeholder = "" {
+        didSet {
+            if oldValue != placeholder { needsDisplay = true }
+        }
+    }
+
+    var showsPlaceholder: Bool { string.isEmpty && !hasMarkedText() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard showsPlaceholder, let font else { return }
+        (placeholder as NSString).draw(at: textContainerOrigin, withAttributes: [
+            .font: font,
+            .foregroundColor: NSColor.placeholderTextColor
+        ])
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        needsDisplay = true
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        needsDisplay = true
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
     }
 }
