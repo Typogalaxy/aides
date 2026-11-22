@@ -29,7 +29,7 @@ struct ChatView: View {
     }
 
     private var tasks: [WorkItem] {
-        workspace.state.tasks.filter { $0.threadID == conversation.id }
+        workspace.state.tasks.filter { $0.threadID == conversation.id && $0.kind != .conversation }
     }
 
     private var desktopTasks: [ComputerRun] {
@@ -68,6 +68,16 @@ struct ChatView: View {
                     }
                 }
                 Menu {
+                    if !tasks.isEmpty {
+                        Menu("Conversation workers") {
+                            ForEach(tasks.reversed()) { task in
+                                Button(task.title) { showWorker(task.id) }
+                            }
+                        }
+                    }
+                    if !desktopTasks.isEmpty {
+                        Button("View Computer Use runs") { showComputerUse() }
+                    }
                     Button("Remember a note…") {
                         sourceMessage = nil
                         showsMemory = true
@@ -87,38 +97,6 @@ struct ChatView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
             Divider()
-
-            if !tasks.isEmpty || !desktopTasks.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(tasks.reversed()) { task in
-                            Button {
-                                showWorker(task.id)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    TaskStatusView(task: task, showsLabel: false)
-                                    Text(task.title).lineLimit(1)
-                                }
-                                .font(.caption)
-                                .padding(.horizontal, 3)
-                            }
-                            .help(task.statusLabel)
-                        }
-                        ForEach(desktopTasks, id: \.id) { run in
-                            Button(action: showComputerUse) {
-                                Label(run.status.displayName, systemImage: "macwindow")
-                                    .font(.caption)
-                                    .padding(.horizontal, 3)
-                            }
-                            .help(run.instruction)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                }
-                .scrollIndicators(.hidden)
-                Divider()
-            }
 
             timeline
 
