@@ -6,6 +6,8 @@ struct ChatMarkdownView: View {
     var bodySize: CGFloat = 13
     var codeSize: CGFloat = 12
 
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
         let document = ChatMarkdownDocument(source)
         VStack(alignment: .leading, spacing: 0) {
@@ -67,7 +69,7 @@ struct ChatMarkdownView: View {
         switch block.kind {
         case .header(level: let level):
             inlineText(block.text)
-                .font(.system(size: bodySize * max(1.0, 1.62 - Double(level - 1) * 0.14), weight: .semibold))
+                .font(.system(size: bodySize * max(1.0, 1.62 - Double(level - 1) * 0.14) - 2, weight: .semibold))
                 .accessibilityAddTraits(.isHeader)
         case .codeBlock:
             ScrollView(.horizontal) {
@@ -93,7 +95,7 @@ struct ChatMarkdownView: View {
                 Text(source)
             } else {
                 textWithMarkedCode(source, codeRuns: codeRuns)
-                    .textRenderer(InlineCodeBackground())
+                    .textRenderer(InlineCodeBackground(horizontalInset: 4 + 1 / displayScale))
             }
         }
         .lineSpacing(4)
@@ -140,7 +142,7 @@ struct ChatMarkdownView: View {
 private struct InlineCode: TextAttribute {}
 
 private struct InlineCodeBackground: TextRenderer {
-    private let horizontalInset: CGFloat = 4
+    let horizontalInset: CGFloat
     private let verticalInset: CGFloat = 2
 
     var displayPadding: EdgeInsets {
@@ -151,7 +153,7 @@ private struct InlineCodeBackground: TextRenderer {
         for line in layout {
             for run in line where run[InlineCode.self] != nil {
                 let bounds = run.typographicBounds.rect.insetBy(dx: -horizontalInset, dy: -verticalInset)
-                let pill = Path(roundedRect: bounds, cornerRadius: 4)
+                let pill = Path(roundedRect: bounds, cornerRadius: 5)
                 context.fill(pill, with: .color(.primary.opacity(0.1)))
             }
             context.draw(line)
