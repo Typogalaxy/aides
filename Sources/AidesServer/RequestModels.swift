@@ -38,7 +38,12 @@ struct NewSchedule: Decodable {
 struct SchedulePause: Decodable { let paused: Bool }
 struct TaskApproval: Decodable { let approved: Bool }
 struct ClarifyReview: Decodable { let clarification: String }
-struct SettingsChange: Decodable { let defaultModelID: UUID?; let preference: String? }
+struct SettingsChange: Decodable {
+    let defaultModelID: UUID?
+    let reviewModelID: UUID?
+    let clearReviewModel: Bool?
+    let preference: String?
+}
 struct NewModel: Decodable {
     let name: String
     let kind: ProviderKind

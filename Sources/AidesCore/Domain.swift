@@ -151,6 +151,7 @@ public struct PairedDevice: Codable, Identifiable, Sendable {
 
 public struct PreferenceSettings: Codable, Sendable {
     public var defaultModelID: UUID?
+    public var reviewModelID: UUID?
     public var preference: String = ""
     public var preferenceRevision: Int = 0
 

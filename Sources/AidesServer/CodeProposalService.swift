@@ -77,7 +77,23 @@ extension AidesService {
     }
 
     func applyProposal(_ id: UUID, path: String) async throws -> AppState {
-        try await change { state in
+        let snapshot = await store.snapshot()
+        guard let pending = snapshot.proposals?[id],
+              let edit = pending.result?.changes.first(where: { $0.path == path }) else {
+            throw Abort(.notFound, reason: "There is no completed change for that path.")
+        }
+        if !pending.appliedPaths.contains(path) {
+            do {
+                try await LocalReview.check("Apply user-approved file replacement to \(path)",
+                                            data: edit.proposedContents, in: snapshot)
+            } catch {
+                throw Abort(.forbidden, reason: error.localizedDescription)
+            }
+        }
+        return try await change { state in
+            guard state.app.settings.reviewModelID == snapshot.app.settings.reviewModelID else {
+                throw Abort(.conflict, reason: "The review model changed. Review the proposal again.")
+            }
             guard let task = state.app.tasks.first(where: { $0.id == id }), task.status == .completed,
                   let projectID = task.projectID, var proposal = state.proposals?[id],
                   let edit = proposal.result?.changes.first(where: { $0.path == path }) else {

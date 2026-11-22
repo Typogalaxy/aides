@@ -103,6 +103,7 @@ actor JobRunner {
         let input = codePrompt ?? work.instruction
         if !model.kind.isLocal {
             try CloudBoundary.validate(input)
+            try await LocalReview.check("Send approved material to \(model.kind.rawValue)", data: input, in: snapshot)
         }
         if let provider = CodingReviewProvider(rawValue: model.kind.rawValue) {
             return try await CodingReviewClient().generate(.init(

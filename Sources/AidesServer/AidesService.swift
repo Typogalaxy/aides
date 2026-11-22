@@ -208,6 +208,14 @@ struct AidesService: Sendable {
                 }
                 state.app.settings.defaultModelID = id
             }
+            if let review = input.reviewModelID {
+                guard state.app.models.contains(where: { $0.id == review && $0.kind == .ollama }) else {
+                    throw Abort(.badRequest, reason: "The review model must use local Ollama inference.")
+                }
+                state.app.settings.reviewModelID = review
+            } else if input.clearReviewModel == true {
+                state.app.settings.reviewModelID = nil
+            }
             if let preference, preference != state.app.settings.preference {
                 state.app.settings.preference = preference
                 state.app.settings.preferenceRevision += 1
