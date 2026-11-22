@@ -45,6 +45,7 @@ public struct Project: Codable, Identifiable, Sendable {
     public let name: String
     public let directory: String?
     public let createdAt: Date
+    public var watching: Bool?
 
     public init(name: String, directory: String?, now: Date = .now) {
         id = UUID()
@@ -63,7 +64,7 @@ public enum WorkStatus: String, Codable, Sendable {
 }
 
 public enum WorkKind: String, Codable, Sendable {
-    case conversation, analysis, reminder, review
+    case conversation, analysis, reminder, review, codeProposal
 }
 
 public struct WorkItem: Codable, Identifiable, Sendable {
