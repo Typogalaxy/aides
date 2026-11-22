@@ -8,6 +8,7 @@ struct AidesService: Sendable {
     let host: Host
     let store: StateStore<ServerState>
     let jobs: JobRunner
+    let computer: ComputerRuns
     let commands: ToolkitCommandJobs
     let feeds: ToolkitFeedMonitor
 
@@ -16,6 +17,7 @@ struct AidesService: Sendable {
         let store = try StateStore(directory: host.directory, defaultState: ServerState())
         self.store = store
         jobs = JobRunner(host: host, store: store)
+        computer = ComputerRuns(store: store)
         commands = ToolkitCommandJobs(store: store)
         feeds = ToolkitFeedMonitor(store: store)
         let snapshot = await store.snapshot()
@@ -27,8 +29,10 @@ struct AidesService: Sendable {
         let recoveringMail = snapshot.toolkitMailDrafts?.values.contains { $0.status == .sending } == true
         let recoveringArchives = snapshot.toolkitMailArchives?.values.contains { $0.status == .archiving } == true
         let recoveringGitHub = snapshot.toolkitGitHubWrites?.values.contains { $0.status == .submitting } == true
-        if recoveringTasks || recoveringFileJobs || recoveringCommands || recoveringMail || recoveringArchives || recoveringGitHub {
+        let recoveringComputer = snapshot.computerRuns?.values.contains { $0.run.status.isActive } == true
+        if recoveringTasks || recoveringFileJobs || recoveringCommands || recoveringMail || recoveringArchives || recoveringGitHub || recoveringComputer {
             try await store.update { state in
+                ComputerRuns.recover(in: &state)
                 Self.interruptToolkitMailDispatches(in: &state)
                 Self.interruptToolkitMailArchives(in: &state)
                 Self.interruptToolkitGitHubWrites(in: &state)
@@ -59,10 +63,12 @@ struct AidesService: Sendable {
 
     func start() async {
         async let polling: Void = feeds.start()
+        async let computerPolling: Void = computer.start()
         async let mailPolling: Void = runToolkitMailWatches()
         await jobs.start()
         await polling
         await mailPolling
+        await computerPolling
     }
 
     func authenticatedDevice(_ request: Request) async throws -> UUID {
@@ -87,11 +93,14 @@ struct AidesService: Sendable {
     }
 
     func revoke(_ id: UUID) async throws -> AppState {
-        try await change { state in
+        let app = try await change { state in
             state.app.devices.removeAll { $0.id == id }
             state.tokenOwners = state.tokenOwners.filter { $0.value != id }
             Self.revokeDeviceFileAccess(deviceID: id, in: &state)
+            ComputerRuns.revoke(deviceID: id, in: &state)
         }
+        await computer.reconcileRevocation(of: id)
+        return app
     }
 
     func state(after revision: Int? = nil, deviceID: UUID) async throws -> AppState {

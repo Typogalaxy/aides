@@ -187,6 +187,18 @@ public struct ComputerStep: Codable, Identifiable, Sendable {
     }
 }
 
+public struct ComputerReviewContext: Codable, Sendable {
+    public let windowTitle: String
+    public let label: String?
+    public let role: String?
+
+    public init(windowTitle: String, label: String?, role: String?) {
+        self.windowTitle = windowTitle
+        self.label = label
+        self.role = role
+    }
+}
+
 public struct ComputerRun: Codable, Identifiable, Sendable {
     public let id: UUID
     public let deviceID: UUID
@@ -194,6 +206,7 @@ public struct ComputerRun: Codable, Identifiable, Sendable {
     public let appIDs: [String]
     public let instruction: String
     public let modelID: UUID
+    public let threadID: UUID?
     public let includeImages: Bool
     public let createdAt: Date
     public var updatedAt: Date
@@ -202,12 +215,13 @@ public struct ComputerRun: Codable, Identifiable, Sendable {
     public var result: String?
     public var message: String?
     public var pendingAction: ComputerAction?
+    public var pendingReview: ComputerReviewContext?
     public var pendingCommandID: UUID?
     public var allowRoutineActions: Bool?
 
     public init(
         id: UUID, deviceID: UUID, requestedByDeviceID: UUID, appIDs: [String],
-        instruction: String, modelID: UUID, includeImages: Bool, now: Date = .now
+        instruction: String, modelID: UUID, includeImages: Bool, threadID: UUID? = nil, now: Date = .now
     ) {
         self.id = id
         self.deviceID = deviceID
@@ -215,6 +229,7 @@ public struct ComputerRun: Codable, Identifiable, Sendable {
         self.appIDs = appIDs
         self.instruction = instruction
         self.modelID = modelID
+        self.threadID = threadID
         self.includeImages = includeImages
         createdAt = now
         updatedAt = now

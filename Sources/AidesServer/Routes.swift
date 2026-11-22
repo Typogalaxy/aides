@@ -120,6 +120,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     }
     let toolkit = api.grouped("toolkit").grouped(ToolkitAuditMiddleware(service: service))
     registerToolkitAuditRoutes(toolkit, service: service)
+    registerComputerRoutes(toolkit, service: service)
     registerToolkitLocalRoutes(toolkit, service: service)
     registerToolkitCommandRoutes(toolkit, service: service)
     registerToolkitMailRoutes(toolkit, service: service)

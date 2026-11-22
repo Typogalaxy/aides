@@ -24,6 +24,7 @@ struct ToolkitAuditMiddleware: AsyncMiddleware {
     private static func action(for request: Request) -> String? {
         guard let route = request.route else { return nil }
         let components = route.path.dropFirst(3).map(\.description)
+        if components == ["computer", "next"] { return nil }
         let isMailRead = components.first == "mail" && components.contains("messages")
         guard !components.isEmpty,
               request.method == .POST || request.method == .DELETE || (request.method == .GET && isMailRead) else {
