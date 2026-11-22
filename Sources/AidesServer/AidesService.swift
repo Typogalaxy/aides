@@ -144,6 +144,7 @@ struct AidesService: Sendable {
                 throw Abort(.notFound)
             }
             guard !state.app.tasks.contains(where: { $0.threadID == id && !$0.status.isTerminal }),
+                  !(state.computerRuns ?? [:]).values.contains(where: { $0.run.threadID == id && !$0.run.status.isTerminal }),
                   !state.app.schedules.contains(where: { $0.threadID == id && !$0.paused && $0.nextRun != nil }) else {
                 throw Abort(.conflict, reason: "Finish or cancel the conversation’s work before archiving.")
             }
@@ -157,28 +158,46 @@ struct AidesService: Sendable {
         let mailGrant = try await toolkitMailGrant(
             input.toolkitMailAccountID, folder: input.toolkitResourceID, deviceID: deviceID
         )
-        return try await change { state in
-            guard let index = state.app.threads.firstIndex(where: { $0.id == id }), state.app.threads[index].archivedAt == nil else {
-                throw Abort(.notFound)
+        let message = Message(text, role: .user, hasComputerObservation: input.computerObservation == nil ? nil : true)
+        if let observation = input.computerObservation {
+            guard input.toolkitResourceID == nil, mailGrant == nil,
+                  observation.isValid(allowImages: true, expectedAppID: observation.appID) else {
+                throw Abort(.badRequest, reason: "Attach one supported window within its observation limits.")
             }
-            let toolkitGrant = try Self.makeToolkitGrant(input.toolkitResourceID, deviceID: deviceID, in: state)
-            if mailGrant != nil {
-                guard state.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
+            try await jobs.attachComputerObservation(observation, id: message.id, deviceID: deviceID)
+        }
+        do {
+            return try await change { state in
+                guard let index = state.app.threads.firstIndex(where: { $0.id == id }), state.app.threads[index].archivedAt == nil else {
+                    throw Abort(.notFound)
+                }
+                let toolkitGrant = try Self.makeToolkitGrant(input.toolkitResourceID, deviceID: deviceID, in: state)
+                if mailGrant != nil || input.computerObservation != nil {
+                    guard state.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
+                }
+                if input.computerObservation != nil {
+                    guard state.app.models.contains(where: { $0.id == state.app.settings.defaultModelID && $0.kind == .ollama }) else {
+                        throw Abort(.badRequest, reason: "Select a local Ollama model before attaching a window.")
+                    }
+                }
+                state.app.threads[index].messages.append(message)
+                guard let modelID = state.app.settings.defaultModelID else {
+                    state.app.threads[index].messages.append(Message("Configure a local model in Settings before asking for a reply.", role: .system))
+                    return
+                }
+                var task = WorkItem(
+                    title: "Reply to \(state.app.threads[index].title)", instruction: text,
+                    threadID: id, projectID: state.app.threads[index].projectID, modelID: modelID, kind: .conversation
+                )
+                task.computerObservationID = input.computerObservation == nil ? nil : message.id
+                task.toolkitGrant = toolkitGrant
+                task.toolkitMailGrant = mailGrant
+                state.app.tasks.append(task)
+                state.replyMessages[task.id] = message.id
             }
-            let message = Message(text, role: .user)
-            state.app.threads[index].messages.append(message)
-            guard let modelID = state.app.settings.defaultModelID else {
-                state.app.threads[index].messages.append(Message("Configure a local model in Settings before asking for a reply.", role: .system))
-                return
-            }
-            var task = WorkItem(
-                title: "Reply to \(state.app.threads[index].title)", instruction: text,
-                threadID: id, projectID: state.app.threads[index].projectID, modelID: modelID, kind: .conversation
-            )
-            task.toolkitGrant = toolkitGrant
-            task.toolkitMailGrant = mailGrant
-            state.app.tasks.append(task)
-            state.replyMessages[task.id] = message.id
+        } catch {
+            if input.computerObservation != nil { await jobs.discardComputerObservation(message.id) }
+            throw error
         }
     }
 

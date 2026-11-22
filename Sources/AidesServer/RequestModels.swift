@@ -8,6 +8,7 @@ struct HealthResult: Encodable { let status = "ok" }
 struct NewThread: Decodable { let title: String; let role: ConversationRole; let projectID: UUID? }
 struct NewMessage: Decodable {
     let text: String
+    let computerObservation: ComputerObservation?
     let toolkitResourceID: UUID?
     let toolkitMailAccountID: String?
 }

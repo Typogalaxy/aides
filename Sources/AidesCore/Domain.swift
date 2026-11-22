@@ -22,11 +22,13 @@ public struct Message: Codable, Identifiable, Sendable {
     public let toolkitSuggestion: ToolkitSuggestion?
     public let toolkitMailSuggestion: ToolkitMailDraftSuggestion?
     public let notificationKind: NotificationKind?
+    public let hasComputerObservation: Bool?
 
     public init(
         _ text: String, role: MessageRole, now: Date = .now,
         scheduleSuggestion: ScheduleSuggestion? = nil, toolkitSuggestion: ToolkitSuggestion? = nil,
-        toolkitMailSuggestion: ToolkitMailDraftSuggestion? = nil, notificationKind: NotificationKind? = nil
+        toolkitMailSuggestion: ToolkitMailDraftSuggestion? = nil, notificationKind: NotificationKind? = nil,
+        hasComputerObservation: Bool? = nil
     ) {
         id = UUID()
         self.text = text
@@ -36,6 +38,7 @@ public struct Message: Codable, Identifiable, Sendable {
         self.toolkitSuggestion = toolkitSuggestion
         self.toolkitMailSuggestion = toolkitMailSuggestion
         self.notificationKind = notificationKind
+        self.hasComputerObservation = hasComputerObservation
     }
 }
 
@@ -98,6 +101,7 @@ public struct WorkItem: Codable, Identifiable, Sendable {
     public let instruction: String
     public var approvedCloud: Bool
     public var sharedMemories: [MemoryRecord]?
+    public var computerObservationID: UUID?
     public var toolkitGrant: ToolkitWorkGrant?
     public var toolkitMailGrant: ToolkitMailGrant?
     public var toolkitMailSuggestion: ToolkitMailDraftSuggestion?

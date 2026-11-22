@@ -30,7 +30,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.createThread(decode(NewThread.self, request)))
     }
-    api.post("threads", ":id", "messages") { request in
+    api.on(.POST, "threads", ":id", "messages", body: .collect(maxSize: "768kb")) { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.message(in: id(request), input: decode(NewMessage.self, request), deviceID: device))
     }
