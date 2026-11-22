@@ -41,25 +41,26 @@ final class DesktopUpdates {
 }
 
 #if canImport(Sparkle)
+@MainActor
 private final class UpdatePresentation: NSObject, SPUStandardUserDriverDelegate {
-    @MainActor var setAvailability: ((Bool) -> Void)?
+    var setAvailability: ((Bool) -> Void)?
 
-    var supportsGentleScheduledUpdateReminders: Bool { true }
+    nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 
-    func standardUserDriverShouldHandleShowingScheduledUpdate(
+    nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
         _ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool
     ) -> Bool {
         false
     }
 
-    func standardUserDriverWillHandleShowingUpdate(
+    nonisolated func standardUserDriverWillHandleShowingUpdate(
         _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState
     ) {
         guard !handleShowingUpdate else { return }
         Task { @MainActor in setAvailability?(true) }
     }
 
-    func standardUserDriverWillFinishUpdateSession() {
+    nonisolated func standardUserDriverWillFinishUpdateSession() {
         Task { @MainActor in setAvailability?(false) }
     }
 }
