@@ -59,7 +59,7 @@ struct ToolkitGitHubView: View {
                             LabeledContent(item.title, value: item.state)
                             if let date = item.updatedAt {
                                 Text(date.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption)
+                                    .desktopUIFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             if let summary = item.summary, !summary.isEmpty {

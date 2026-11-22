@@ -40,8 +40,8 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HStack(spacing: 15) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(conversation.title).font(.headline)
-                    Text(conversation.role.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
+                    Text(conversation.title).desktopUIFont(.headline)
+                    Text(conversation.role.rawValue.capitalized).desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if conversation.archivedAt == nil {
@@ -104,7 +104,7 @@ struct ChatView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Archived \(archivedAt.formatted(date: .abbreviated, time: .omitted))")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .desktopUIFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                     if let report = conversation.report, !report.isEmpty {
                         Text(report).textSelection(.enabled)
                     }
@@ -219,13 +219,13 @@ struct ChatView: View {
                         Button { showsAppshot = true } label: {
                             Label("Review current window", systemImage: "macwindow")
                         }
-                        Text("Local model only").font(.caption).foregroundStyle(.secondary)
+                        Text("Local model only").desktopUIFont(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("Remove") { workspace.appshots.remove(appshot.id) }
                     }
                 }
                 if let error = workspace.appshots.error {
-                    Text(error).font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(error).desktopUIFont(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 TextField("Message \(conversation.title)…", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -301,6 +301,7 @@ private struct ChatMessageView: View {
     let message: Message
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.desktopTypography) private var typography
 
     var body: some View {
         Group {
@@ -308,7 +309,7 @@ private struct ChatMessageView: View {
                 HStack(alignment: .top, spacing: 0) {
                     Spacer(minLength: 38)
                     Text(message.text)
-                        .font(.system(size: 16))
+                        .font(.system(size: typography.uiSize + 3))
                         .lineSpacing(5)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
@@ -322,10 +323,10 @@ private struct ChatMessageView: View {
                         .frame(maxWidth: 514, alignment: .trailing)
                 }
             } else if message.role == .assistant {
-                ChatMarkdownView(source: message.text, bodySize: 16, codeSize: 13)
+                ChatMarkdownView(source: message.text, bodySize: typography.replySize, codeSize: typography.codeSize)
             } else {
                 Text(message.text)
-                    .font(.system(size: 16))
+                    .desktopUIFont(.body)
                     .lineSpacing(5)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -360,17 +361,17 @@ private struct ScheduleSuggestionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(suggestion.title, systemImage: "calendar.badge.clock")
-                .font(.callout.weight(.medium))
+                .desktopUIFont(.callout, weight: .medium)
             Text("\(suggestion.kind == .reminder ? "Reminder" : "Analysis") · \(suggestion.repeatRule.rawValue.capitalized)")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             Text("\(date) · \(suggestion.timeZone)")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             if scheduled {
                 Label("Scheduled", systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
-                    .font(.callout)
+                    .desktopUIFont(.callout)
             } else if conversation.archivedAt == nil && suggestion.isValid(after: .now) {
                 Button("Confirm schedule") {
                     Task { await workspace.confirmSchedule(suggestedBy: message.id) }
@@ -378,7 +379,7 @@ private struct ScheduleSuggestionView: View {
                 .disabled(workspace.isWorking)
             } else {
                 Text("Schedule suggestion expired or archived.")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -406,7 +407,7 @@ struct ToolkitSuggestionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(suggestion.tool.descriptor.title, systemImage: "hammer")
-                .font(.callout.weight(.medium))
+                .desktopUIFont(.callout, weight: .medium)
             if let grant {
                 LabeledContent("Folder", value: "\(grant.name) · \(workspace.toolkitDeviceName(grant.deviceID))")
             }
@@ -420,7 +421,7 @@ struct ToolkitSuggestionView: View {
                     DisclosureGroup("Result") {
                         ScrollView {
                             Text(result)
-                                .font(.system(.caption, design: .monospaced))
+                                .desktopCodeFont()
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -444,7 +445,7 @@ struct ToolkitSuggestionView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .font(.callout)
+        .desktopUIFont(.callout)
         .textSelection(.enabled)
         .padding(12)
         .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
@@ -538,7 +539,7 @@ private struct ReplyPreferenceSheet: View {
                 .lineLimit(3...8)
                 .textFieldStyle(.roundedBorder)
             if let error = workspace.error {
-                Text(error).font(.callout).foregroundStyle(.orange)
+                Text(error).desktopUIFont(.callout).foregroundStyle(.orange)
             }
             HStack {
                 Spacer()

@@ -21,14 +21,14 @@ struct ComputerAppshotPreview: View {
                             .accessibilityLabel("Window screenshot")
                     }
                     if let notice = appshot.observation.notice {
-                        Text(notice).font(.caption).foregroundStyle(.secondary)
+                        Text(notice).desktopUIFont(.caption).foregroundStyle(.secondary)
                     }
                     ForEach(appshot.observation.elements) { element in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(element.label.isEmpty ? element.role : element.label)
-                                .font(.caption.weight(.semibold))
+                                .desktopUIFont(.caption, weight: .semibold)
                             if let value = element.value, !value.isEmpty {
-                                Text(value).font(.caption).textSelection(.enabled)
+                                Text(value).desktopUIFont(.caption).textSelection(.enabled)
                             }
                         }
                     }

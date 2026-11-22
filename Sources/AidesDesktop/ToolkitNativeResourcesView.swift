@@ -49,7 +49,7 @@ private struct ToolkitCalendarSection: View {
                 .disabled(busy)
             }
             if let error {
-                Text(error).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
+                Text(error).desktopUIFont(.callout).foregroundStyle(.orange).textSelection(.enabled)
             }
             if let dayEvents {
                 if dayEvents.isEmpty {
@@ -73,7 +73,7 @@ private struct ToolkitCalendarSection: View {
                             Text(timeRange(interval.start, interval.end))
                         }
                     }
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
                 }
             }
@@ -295,7 +295,7 @@ private struct ToolkitContactsSection: View {
                 .disabled(busy)
             }
             if let error {
-                Text(error).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
+                Text(error).desktopUIFont(.callout).foregroundStyle(.orange).textSelection(.enabled)
             }
             if let contacts {
                 if contacts.isEmpty { Text("No matching contacts.").foregroundStyle(.secondary) }
@@ -303,7 +303,7 @@ private struct ToolkitContactsSection: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(contact.name.isEmpty ? "(No name)" : contact.name)
-                            Text(contact.emails.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+                            Text(contact.emails.joined(separator: ", ")).desktopUIFont(.caption).foregroundStyle(.secondary)
                         }
                         .textSelection(.enabled)
                         Spacer()

@@ -78,19 +78,19 @@ struct CodeProposalDetails: View {
             if let details {
                 if task.status == .waitingApproval {
                     Text("Review the listed files before sending them to the provider.")
-                        .font(.callout)
+                        .desktopUIFont(.callout)
                         .foregroundStyle(.secondary)
                     sources(details.files)
                     ApprovalDetails(workspace: workspace, task: task, includesFiles: true)
                 } else if !details.changes.isEmpty {
                     changes(details)
                 } else if let summary = details.summary {
-                    Text(summary).font(.callout).textSelection(.enabled)
+                    Text(summary).desktopUIFont(.callout).textSelection(.enabled)
                 } else {
                     sources(details.files)
                 }
             } else if let loadError {
-                Text(loadError).font(.callout).foregroundStyle(.secondary)
+                Text(loadError).desktopUIFont(.callout).foregroundStyle(.secondary)
                 Button("Retry") { Task { await load() } }
             } else {
                 ProgressView("Loading files…").controlSize(.small)
@@ -113,16 +113,16 @@ struct CodeProposalDetails: View {
 
     private func sources(_ files: [CodeProposalFile]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Files in proposal").font(.headline)
+            Text("Files in proposal").desktopUIFont(.headline)
             ForEach(files) { file in
                 DisclosureGroup {
                     if let contents = file.contents {
                         code(contents)
                     } else {
-                        Text("New file").font(.caption).foregroundStyle(.secondary)
+                        Text("New file").desktopUIFont(.caption).foregroundStyle(.secondary)
                     }
                 } label: {
-                    Text(file.path).font(.caption.monospaced()).textSelection(.enabled)
+                    Text(file.path).desktopUIFont(.caption, design: .monospaced).textSelection(.enabled)
                 }
             }
         }
@@ -130,9 +130,9 @@ struct CodeProposalDetails: View {
 
     private func changes(_ details: CodeProposalDetail) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Proposed changes").font(.headline)
+            Text("Proposed changes").desktopUIFont(.headline)
             if let summary = details.summary {
-                Text(summary).font(.callout).textSelection(.enabled)
+                Text(summary).desktopUIFont(.callout).textSelection(.enabled)
             }
             Picker("File", selection: $selection) {
                 Text("Select a file").tag(String?.none)
@@ -145,12 +145,12 @@ struct CodeProposalDetails: View {
                 if let previous = change.originalContents {
                     DisclosureGroup("Original text") { code(previous) }
                 } else {
-                    Text("New file").font(.caption).foregroundStyle(.secondary)
+                    Text("New file").desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("Proposed text", isExpanded: .constant(true)) { code(change.proposedContents) }
                 if details.appliedPaths.contains(change.path) {
                     Label("Applied", systemImage: "checkmark.circle")
-                        .font(.callout)
+                        .desktopUIFont(.callout)
                         .foregroundStyle(.green)
                 } else {
                     Button("Apply this file…") { pathToApply = change.path }
@@ -164,7 +164,7 @@ struct CodeProposalDetails: View {
     private func code(_ text: String) -> some View {
         ScrollView([.horizontal, .vertical]) {
             Text(text.isEmpty ? "(Empty file)" : text)
-                .font(.system(.caption, design: .monospaced))
+                .desktopCodeFont()
                 .textSelection(.enabled)
                 .fixedSize(horizontal: true, vertical: true)
                 .padding(8)

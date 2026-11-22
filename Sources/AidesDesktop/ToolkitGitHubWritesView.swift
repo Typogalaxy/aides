@@ -27,11 +27,11 @@ struct ToolkitGitHubWritesSection: View {
             ForEach(requests) { entry in
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.request.title).font(.body.weight(.medium))
+                        Text(entry.request.title).desktopUIFont(.body, weight: .medium)
                         Text("\(entry.repositoryOwner)/\(entry.repositoryName) · \(entry.request.kind.title)")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .desktopUIFont(.caption).foregroundStyle(.secondary)
                         Text(entry.status.title)
-                            .font(.caption)
+                            .desktopUIFont(.caption)
                             .foregroundStyle(entry.status == .interrupted ? .orange : .secondary)
                     }
                     Spacer()

@@ -24,7 +24,7 @@ struct ToolkitSourcesView: View {
                 ForEach(sources) { source in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text(source.name).font(.body.weight(.medium))
+                            Text(source.name).desktopUIFont(.body, weight: .medium)
                             Spacer()
                             Button(source.paused ? "Resume" : "Pause") {
                                 Task { await pause(source) }
@@ -34,19 +34,19 @@ struct ToolkitSourcesView: View {
                         if let url = URL(string: source.url), url.scheme?.lowercased() == "https" {
                             Link("Open configured page", destination: url)
                         }
-                        Text(source.url).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(source.url).desktopUIFont(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                         if source.paused {
-                            Text("Paused").font(.caption).foregroundStyle(.secondary)
+                            Text("Paused").desktopUIFont(.caption).foregroundStyle(.secondary)
                         } else {
                             LabeledContent("Next check", value: source.nextCheckAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                         }
                         if let lastCheckedAt = source.lastCheckedAt {
                             LabeledContent("Last checked", value: lastCheckedAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption)
+                                .desktopUIFont(.caption)
                         }
                         if let error = source.lastError {
-                            Text(error).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
+                            Text(error).desktopUIFont(.callout).foregroundStyle(.orange).textSelection(.enabled)
                         }
                         if !source.entries.isEmpty {
                             DisclosureGroup("Recent entries") {

@@ -76,7 +76,7 @@ struct WorkspaceView: View {
                         Image(systemName: "wifi.slash")
                         Text(message)
                     }
-                    .font(.callout)
+                    .desktopUIFont(.callout)
                     .frame(maxWidth: .infinity)
                     .padding(9)
                     .background(.orange.opacity(0.13))
@@ -116,12 +116,12 @@ struct WorkspaceView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.title3.weight(.medium))
+                    .desktopUIFont(.title3, weight: .medium)
                     .foregroundStyle(.white)
                     .frame(width: 31, height: 31)
                     .background(Color.aidesAccent, in: .rect(cornerRadius: 9))
                 Text("Aides")
-                    .font(.title2.weight(.semibold))
+                    .desktopUIFont(.title2, weight: .semibold)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 15)
@@ -135,13 +135,13 @@ struct WorkspaceView: View {
                             .frame(width: 16)
                             .foregroundStyle(page == destination ? Color.aidesAccent : Color.secondary)
                         Text(destination.title)
-                            .font(.callout.weight(page == destination ? .semibold : .regular))
+                            .desktopUIFont(.callout, weight: page == destination ? .semibold : .regular)
                         Spacer()
                         if destination == .workers {
                             let approvals = workspace.state.tasks.count { $0.status == .waitingApproval }
                             if approvals > 0 {
                                 Text(approvals.formatted())
-                                    .font(.caption.monospacedDigit())
+                                    .desktopUIFont(.caption, monospacedDigit: true)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -195,7 +195,7 @@ struct WorkspaceView: View {
                     .fill(workspace.connectionError == nil ? Color.green : Color.orange)
                     .frame(width: 7, height: 7)
                 Text(workspace.connectionError == nil ? "Server connected" : "Reconnecting")
-                    .font(.caption)
+                    .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(9)
@@ -266,7 +266,7 @@ struct WorkspaceView: View {
         let archived = workspace.state.threads.filter { $0.archivedAt != nil }
         return VStack(spacing: 0) {
             HStack {
-                Text("Conversations").font(.headline)
+                Text("Conversations").desktopUIFont(.headline)
                 Spacer()
                 Button {
                     showsNewConversation = true
@@ -313,7 +313,7 @@ struct ConnectionView: View {
                 .font(.system(size: 36, weight: .medium))
                 .foregroundStyle(Color.aidesAccent)
             VStack(alignment: .leading, spacing: 8) {
-                Text("Connect to Aides").font(.largeTitle.weight(.semibold))
+                Text("Connect to Aides").desktopUIFont(.largeTitle, weight: .semibold)
                 Text("Pair this Mac with the server that holds your conversations and projects.")
                     .foregroundStyle(.secondary)
             }
@@ -351,7 +351,7 @@ struct ConnectionView: View {
                 if workspace.isWorking { ProgressView().controlSize(.small) }
             }
             Text("Create a code in Settings on an already paired Mac, or run AidesServer invite on your server.")
-                .font(.callout)
+                .desktopUIFont(.callout)
                 .foregroundStyle(.secondary)
         }
         .disabled(workspace.isWorking)
@@ -372,9 +372,9 @@ struct PageHeading: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.title2.weight(.semibold))
+            Text(title).desktopUIFont(.title2, weight: .semibold)
             if let description {
-                Text(description).font(.callout).foregroundStyle(.secondary)
+                Text(description).desktopUIFont(.callout).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -22,8 +22,8 @@ struct ToolkitCommandsView: View {
                 ForEach(commands, id: \.id) { command in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(command.label).font(.body.weight(.medium))
-                            Text(projectName(command)).font(.caption).foregroundStyle(.secondary)
+                            Text(command.label).desktopUIFont(.body, weight: .medium)
+                            Text(projectName(command)).desktopUIFont(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Review run…") { confirming = command }
@@ -46,7 +46,7 @@ struct ToolkitCommandsView: View {
                             DisclosureGroup("Output") {
                                 ScrollView {
                                     Text(output)
-                                        .font(.system(.caption, design: .monospaced))
+                                        .desktopCodeFont()
                                         .textSelection(.enabled)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }

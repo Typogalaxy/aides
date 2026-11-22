@@ -33,7 +33,7 @@ struct NewReviewSheet: View {
                         )) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(model.name)
-                                Text(model.kindLabel).font(.caption).foregroundStyle(.secondary)
+                                Text(model.kindLabel).desktopUIFont(.caption).foregroundStyle(.secondary)
                             }
                         }
                         .disabled(modelIDs.count >= 4 && !modelIDs.contains(model.id))
@@ -41,7 +41,7 @@ struct NewReviewSheet: View {
                 }
             }
             Text("Cloud models require approval before receiving the instructions.")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             HStack {
                 Spacer()
@@ -85,7 +85,7 @@ struct ReviewDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text(review.instruction).font(.callout).textSelection(.enabled)
+            Text(review.instruction).desktopUIFont(.callout).textSelection(.enabled)
             Divider()
             round("Independent interpretations", tasks: firstRound)
             if !followUp.isEmpty {
@@ -116,20 +116,20 @@ struct ReviewDetails: View {
 
     private func round(_ name: String, tasks: [WorkItem]) -> some View {
         VStack(alignment: .leading, spacing: 11) {
-            Text(name).font(.headline)
+            Text(name).desktopUIFont(.headline)
             ForEach(tasks) { task in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(workspace.state.models.first { $0.id == task.modelID }?.name ?? task.title)
-                        .font(.callout.weight(.medium))
+                        .desktopUIFont(.callout, weight: .medium)
                     TaskStatusView(task: task)
                     if task.status == .waitingApproval {
                         ApprovalDetails(workspace: workspace, task: task)
                     }
                     if let error = task.error {
-                        Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(error).desktopUIFont(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     if let result = task.result, !result.isEmpty {
-                        Text(result).font(.callout).textSelection(.enabled)
+                        Text(result).desktopUIFont(.callout).textSelection(.enabled)
                     }
                     if task.status == .waiting {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
@@ -151,7 +151,7 @@ struct ApprovalDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Cloud approval").font(.headline)
+            Text("Cloud approval").desktopUIFont(.headline)
             if let provider = workspace.state.models.first(where: { $0.id == task.modelID }) {
                 LabeledContent("Provider", value: provider.kindLabel)
             }
@@ -159,16 +159,16 @@ struct ApprovalDetails: View {
                 LabeledContent("Project", value: project.name)
             }
             Text(includesFiles ? "The following instructions and the listed file contents will be sent to the provider." : "The following task instructions will be sent to the provider.")
-                .font(.caption)
+                .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             Text(task.instruction)
                 .textSelection(.enabled)
-                .font(.callout)
+                .desktopUIFont(.callout)
             if let memories = task.sharedMemories, !memories.isEmpty {
-                Text("Saved information to send").font(.callout.weight(.semibold))
+                Text("Saved information to send").desktopUIFont(.callout, weight: .semibold)
                 ForEach(memories) { memory in
                     Text("\(memory.key): \(memory.value)")
-                        .font(.callout)
+                        .desktopUIFont(.callout)
                         .textSelection(.enabled)
                 }
             }
