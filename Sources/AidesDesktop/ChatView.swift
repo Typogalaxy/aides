@@ -288,15 +288,6 @@ struct ChatView: View {
                 }
                 let prompt = "Message \(conversation.title)…"
                 ChatComposerInput(text: $draft, placeholder: prompt, fontSize: typography.contentSize, send: sendDraft)
-                    .overlay(alignment: .topLeading) {
-                        if draft.isEmpty {
-                            Text(prompt)
-                                .font(.system(size: typography.contentSize))
-                                .foregroundStyle(Color(nsColor: .placeholderTextColor))
-                                .allowsHitTesting(false)
-                                .accessibilityHidden(true)
-                        }
-                    }
                     .padding(.vertical, 4)
                     .padding(.horizontal, 3)
                 HStack {
