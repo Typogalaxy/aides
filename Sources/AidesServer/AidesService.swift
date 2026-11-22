@@ -140,6 +140,14 @@ struct AidesService: Sendable {
         }
     }
 
+    func watchProject(_ id: UUID, enabled: Bool) async throws -> AppState {
+        try await change { state in
+            guard let index = state.app.projects.firstIndex(where: { $0.id == id }) else { throw Abort(.notFound) }
+            state.app.projects[index].watching = enabled
+            if !enabled { state.watchedProjects?.removeValue(forKey: id) }
+        }
+    }
+
     func addModel(_ input: NewModel) async throws -> AppState {
         let name = try Self.required(input.name, max: 80)
         let model = try Self.required(input.model, max: 200)
@@ -163,7 +171,9 @@ struct AidesService: Sendable {
             }
             guard allowed else { throw Abort(.badRequest, reason: "The endpoint is outside this provider’s allowed addresses.") }
         case .codex, .claudeCode:
-            throw Abort(.badRequest, reason: "Use a supported model provider.")
+            do { _ = try host.executable(for: input.kind) } catch {
+                throw Abort(.badRequest, reason: error.localizedDescription)
+            }
         case .mock: break
         }
         if input.kind.needsAPIKey {

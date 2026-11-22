@@ -6,6 +6,7 @@ actor JobRunner {
     private let host: Host
     private let store: StateStore<ServerState>
     private let client = ModelClient()
+    private var nextWatch = Date.distantPast
     private var running: (id: UUID, handle: Task<Void, Never>)?
 
     init(host: Host, store: StateStore<ServerState>) {
@@ -18,6 +19,10 @@ actor JobRunner {
         while !Task.isCancelled {
             do {
                 try await dispatchSchedules()
+                if nextWatch <= .now {
+                    nextWatch = Date().addingTimeInterval(20)
+                    try await scanWatchedProjects()
+                }
                 if running == nil, let job = try await claim() {
                     running = (job.id, Task { await run(job) })
                 }
@@ -83,6 +88,15 @@ actor JobRunner {
         guard model.kind.isLocal || work.approvedCloud else {
             throw StorageError("Cloud execution requires approval.")
         }
+        if !model.kind.isLocal {
+            try CloudBoundary.validate(work.instruction)
+        }
+        if let provider = CodingReviewProvider(rawValue: model.kind.rawValue) {
+            return try await CodingReviewClient().generate(.init(
+                provider: provider, executable: host.executable(for: model.kind), model: model.model,
+                approvedInput: work.instruction
+            ))
+        }
         let provider: ModelProvider = switch model.kind {
         case .mock: .stub
         case .ollama: .ollama
@@ -144,6 +158,31 @@ actor JobRunner {
             }
             if status.isTerminal { AidesService.reconcileReview(of: work.id, in: &state) }
             state.revise()
+        }
+    }
+
+    private func scanWatchedProjects() async throws {
+        let projects = await store.snapshot().app.projects.filter { $0.watching == true }
+        for project in projects {
+            guard let directory = project.directory,
+                  let observation = await ProjectFileWatcher.snapshot(directory: directory) else { continue }
+            let previous = await store.snapshot().watchedProjects?[project.id]
+            guard previous != observation else { continue }
+            try await store.update { state in
+                guard state.app.projects.contains(where: { $0.id == project.id && $0.watching == true }) else { return }
+                var baselines = state.watchedProjects ?? [:]
+                baselines[project.id] = observation
+                state.watchedProjects = baselines
+                guard let previous, let index = state.app.threads.firstIndex(where: { $0.role == .secretary }) else { return }
+                let delta = ProjectFileWatcher.changes(from: previous, to: observation, limit: 8)
+                guard delta.total > 0 else { return }
+                let names = (delta.created.map { "Added: " + $0 } +
+                             delta.modified.map { "Changed: " + $0 } +
+                             delta.removed.map { "Removed: " + $0 }).joined(separator: "\n")
+                let notice = "[\(project.name)] \(delta.total) file changes\n\(names)"
+                state.app.threads[index].messages.append(Message(notice, role: .system))
+                state.revise()
+            }
         }
     }
 

@@ -77,6 +77,19 @@ struct Host: Sendable {
         return key
     }
 
+    func executable(for kind: ProviderKind) throws -> URL {
+        let variable: String = switch kind {
+        case .codex: "AIDES_CODEX_PATH"
+        case .claudeCode: "AIDES_CLAUDE_CODE_PATH"
+        default: throw StorageError("This provider does not use an official CLI.")
+        }
+        guard let path = ProcessInfo.processInfo.environment[variable], path.hasPrefix("/"),
+              FileManager.default.isExecutableFile(atPath: path) else {
+            throw StorageError("Configure an official, signed-in CLI on the host using \(variable).")
+        }
+        return URL(fileURLWithPath: path)
+    }
+
     private func invitation(_ code: String) -> URL {
         directory.appending(path: "invites/\(Self.digest(code))")
     }

@@ -42,6 +42,10 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.createProject(decode(NewProject.self, request)))
     }
+    api.post("projects", ":id", "watch") { request in
+        _ = try await service.authenticatedDevice(request)
+        return try await json(service.watchProject(id(request), enabled: decode(ProjectWatch.self, request).enabled))
+    }
     api.post("settings") { request in
         _ = try await service.authenticatedDevice(request)
         return try await json(service.updateSettings(decode(SettingsChange.self, request)))
