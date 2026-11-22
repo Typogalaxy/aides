@@ -8,21 +8,31 @@ struct AidesService: Sendable {
     let host: Host
     let store: StateStore<ServerState>
     let jobs: JobRunner
+    let commands: ToolkitCommandJobs
 
     init(host: Host) async throws {
         self.host = host
         let store = try StateStore(directory: host.directory, defaultState: ServerState())
         self.store = store
         jobs = JobRunner(host: host, store: store)
+        commands = ToolkitCommandJobs(store: store)
         let snapshot = await store.snapshot()
         let recoveringTasks = snapshot.app.tasks.contains { work in
             work.status == .running || (work.kind == .retiredMail && !work.status.isTerminal)
         }
         let recoveringFileJobs = snapshot.deviceFiles?.jobs.contains { $0.status == .running } == true
-        if recoveringTasks || recoveringFileJobs {
+        let recoveringCommands = snapshot.toolkitCommandRuns?.values.contains { $0.status.isActive } == true
+        if recoveringTasks || recoveringFileJobs || recoveringCommands {
             try await store.update { state in
                 state.deviceFiles?.interruptClaims(at: .now)
                 state.deviceFiles?.trimHistory()
+                if var runs = state.toolkitCommandRuns {
+                    for id in runs.keys where runs[id]?.status.isActive == true {
+                        runs[id]?.status = .interrupted
+                        runs[id]?.message = "Server restarted. Check the project before running this command again."
+                    }
+                    state.toolkitCommandRuns = runs
+                }
                 for index in state.app.tasks.indices {
                     let work = state.app.tasks[index]
                     if work.kind == .retiredMail && !work.status.isTerminal {

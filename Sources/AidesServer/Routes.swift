@@ -120,6 +120,7 @@ func configureRoutes(_ app: Application, service: AidesService) {
     }
     let toolkit = api.grouped("toolkit")
     registerToolkitLocalRoutes(toolkit, service: service)
+    registerToolkitCommandRoutes(toolkit, service: service)
     toolkit.post("suggestions", ":id", "accept") { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.acceptToolkitSuggestion(id(request), deviceID: device))
