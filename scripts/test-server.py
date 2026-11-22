@@ -101,6 +101,9 @@ class OllamaFixture(BaseHTTPRequestHandler):
                 "summary": "Update the isolated fixture",
                 "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
             })
+        elif text == "Fixture Toolkit query scoped memory":
+            evidence = [item["content"] for item in request["messages"] if item["content"].startswith("Approved local Toolkit query")]
+            answer = "Local Toolkit evidence present" if any(PRIVATE_MARKER in item for item in evidence) else "No local Toolkit evidence"
         elif text == "Fixture Toolkit analyze receipt":
             evidence = "Approved local file receipt (JSON string):\n" + json.dumps("Synthetic granted folder")
             answer = "Local receipt present" if any(message["content"] == evidence for message in request["messages"]) else "No local receipt"
@@ -389,7 +392,13 @@ def exercise_toolkit_models(anonymous, client, secretary, cloud):
     client.post(f'/toolkit/suggestions/{worker["id"]}/accept', {}, status=409)
     client.post("/tasks", selection, status=403)
     require(client.post("/device-files/jobs/next", {}).get("job") is None, "Revoked proposal still dispatched")
-    print("PASS Toolkit secretary and Worker scoping, confirmation, and revocation")
+    anonymous.request("GET", "/toolkit/audit", status=401)
+    audit = client.request("GET", "/toolkit/audit")
+    require(any(entry["status"] == 409 and "suggestions" in entry["action"] for entry in audit),
+            "Toolkit authorization rejection was not recorded")
+    require("Synthetic granted folder" not in json.dumps(audit) and accepted["id"] not in json.dumps(audit),
+            "Toolkit audit logged request identifiers or receipt contents")
+    print("PASS Toolkit secretary and Worker scoping, confirmation, revocation, and audit")
 
 
 def exercise(server, mock_ollama):
@@ -497,6 +506,20 @@ def exercise(server, mock_ollama):
     cloud = add_model(client, "Approved fixture", "codex", "fixture-model")
     exercise_toolkit_models(anonymous, client, secretary, cloud)
     exercise_toolkit_writes(client)
+    selection = {"action": "memory.search", "query": "Fixture marker", "limit": 3}
+    scoped = {"title": "Scoped local query", "instruction": "Fixture Toolkit query scoped memory",
+              "threadID": project_thread, "toolkitLocalSelection": selection}
+    client.post("/tasks", {**scoped, "modelID": cloud}, status=403)
+    client.post("/tasks", {**scoped, "toolkitLocalSelection": {"action": "projects.files.read",
+                      "path": "../Outside.txt"}}, status=400)
+    state = client.post("/tasks", scoped)
+    task = wait_for_task(client, find(state["tasks"], title=scoped["title"])["id"], "completed")
+    require(task["result"] == "Local Toolkit evidence present", "Scoped memory did not reach the local Worker")
+    outside = {"title": "Outside local query", "instruction": scoped["instruction"], "toolkitLocalSelection": selection}
+    state = client.post("/tasks", outside)
+    task = wait_for_task(client, find(state["tasks"], title=outside["title"])["id"], "completed")
+    require(task["result"] == "No local Toolkit evidence", "A local Worker received an out-of-scope query result")
+    print("PASS Local Toolkit query results respect Worker scope and local-only routing")
     state = client.post("/tasks", {"title": "Cloud fixture request", "modelID": cloud})
     cloud_task = find(state["tasks"], title="Cloud fixture request")
     require(cloud_task["status"] == "waitingApproval" and not cloud_task["approvedCloud"], "Cloud execution bypassed approval")
