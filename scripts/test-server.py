@@ -26,6 +26,9 @@ MAIL_FROM = "server@example.invalid"
 MAIL_RECIPIENTS = ("recipient@example.invalid", "uncertain@example.invalid")
 MAIL_SUBJECT = "确认 café"
 MAIL_BODY = "Thanks for confirming.\nSee you soon."
+SHARED_MARKER = "authorized-material-fixture"
+PRIVATE_MARKER = "private-project-fixture"
+UNSELECTED_MARKER = "unselected-material-fixture"
 
 
 class SmokeFailure(Exception):
@@ -94,7 +97,7 @@ class OllamaFixture(BaseHTTPRequestHandler):
         system = " ".join(
             message["content"] for message in request["messages"] if message["role"] == "system"
         )
-        scope = "scoped" if "private-project-fixture" in system else "outside"
+        scope = "scoped" if PRIVATE_MARKER in system else "outside"
         answer = f'{request["model"]} / {scope}'
         text = user_text(request)
         mail_recipient = next((recipient for recipient in MAIL_RECIPIENTS if mail_request(recipient) == text), None)
@@ -167,7 +170,17 @@ class IsolatedServer:
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
         fixture = temporary / "codex-fixture"
-        fixture.write_text("#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s' 'Approved fixture review'\n", encoding="utf-8")
+        fixture.write_text(
+            "#!/bin/sh\n"
+            "set -eu\n"
+            "prompt=$(/bin/cat)\n"
+            "case \"$prompt\" in\n"
+            f"  *{PRIVATE_MARKER}*|*{UNSELECTED_MARKER}*) printf '%s' 'Unexpected memory disclosure' ;;\n"
+            f"  *{SHARED_MARKER}*) printf '%s' 'Approved fixture review with selected memory' ;;\n"
+            "  *) printf '%s' 'Approved fixture review' ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
         fixture.chmod(0o700)
         self.environment["AIDES_CODEX_PATH"] = str(fixture)
         self.environment["AIDES_PORT"] = str(self.port)
@@ -296,6 +309,32 @@ def confirm_fixture_mail(client, anonymous, server, secretary, recipient, status
     return confirm, recipient, task["id"]
 
 
+def verify_cloud_memory(client, project_thread, scope, model, private_memory):
+    selected = {"key": "Selected fixture fact", "value": SHARED_MARKER,
+                "scope": scope, "sensitivity": "cloudAllowed"}
+    saved = find(client.post("/memory", selected), key=selected["key"])
+    client.post("/memory", {"key": "Unselected fixture fact", "value": UNSELECTED_MARKER,
+                            "scope": "global", "sensitivity": "cloudAllowed"})
+    request = {"title": "Cloud fixture with selected memory", "modelID": model, "threadID": project_thread}
+    client.post("/tasks", {**request, "sharedMemoryIDs": [private_memory]}, status=403)
+    client.post("/tasks", {**request, "threadID": None, "sharedMemoryIDs": [saved["id"]]}, status=403)
+    state = client.post("/tasks", {**request, "sharedMemoryIDs": [saved["id"]]})
+    task = find(state["tasks"], title=request["title"])
+    require(task["status"] == "waitingApproval", "Sharing memory bypassed cloud approval")
+    client.post(f'/tasks/{task["id"]}/approve', {"approved": True})
+    result = wait_for_task(client, task["id"], "completed")
+    require(result["result"] == "Approved fixture review with selected memory",
+            "Cloud fixture did not receive exactly the selected memory")
+
+    title = "Cloud fixture with revoked memory"
+    state = client.post("/tasks", {**request, "title": title, "sharedMemoryIDs": [saved["id"]]})
+    task = find(state["tasks"], title=title)
+    client.post("/memory", {**selected, "sensitivity": "localOnly"})
+    client.post(f'/tasks/{task["id"]}/approve', {"approved": True})
+    blocked = wait_for_task(client, task["id"], "waiting")
+    require("shared memory" in blocked.get("error", ""), "Revocation did not prevent dispatch")
+
+
 def exercise(server, mock_ollama):
     invite = server.invite()
     anonymous = server.start()
@@ -348,7 +387,7 @@ def exercise(server, mock_ollama):
     scope = "project:" + project["id"].lower()
     memory = {"key": "Fixture marker", "value": "outdated-fixture", "scope": scope, "sensitivity": "localOnly"}
     before = client.post("/memory", memory)[0]
-    memory["value"] = "private-project-fixture"
+    memory["value"] = PRIVATE_MARKER
     after = client.post("/memory", memory)
     require(len(after) == 1 and after[0]["id"] == before["id"], "Memory update was not stable")
     require(client.request("GET", "/memory")[0]["value"] == memory["value"], "Memory update was not saved")
@@ -410,6 +449,8 @@ def exercise(server, mock_ollama):
     client.post("/tasks/" + cloud_task["id"] + "/approve", {"approved": True})
     result = wait_for_task(client, cloud_task["id"], "completed")
     require(result["result"] == "Approved fixture review", "Approved command fixture did not return its report")
+    verify_cloud_memory(client, project_thread, scope, cloud, before["id"])
+    print("PASS cloud memory selection is scoped, explicit, and revocable before dispatch")
 
     state = client.post("/reviews", {
         "title": "Review fixture", "instruction": "Choose a storage format.", "modelIDs": [local_a, local_b],
@@ -460,7 +501,8 @@ def exercise(server, mock_ollama):
     require(restored["settings"]["defaultModelID"] == local_b, "Default model did not persist")
     require(find(restored["tasks"], id=review["id"])["status"] == "completed", "Review did not persist")
     require(client.request("GET", proposal_path)["appliedPaths"] == ["Example.swift"], "Approval did not persist")
-    require(client.request("GET", "/memory")[0]["value"] == memory["value"], "Scoped memory did not persist")
+    require(find(client.request("GET", "/memory"), id=before["id"])["value"] == memory["value"],
+            "Scoped memory did not persist")
     completed = [task for task in restored["tasks"] if task.get("scheduleID") == schedule["id"]]
     require(len(completed) == 1 and completed[0]["status"] == "completed", "Reminder was lost or repeated")
     require(find(restored["schedules"], id=schedule["id"]).get("nextRun") is None, "One-time schedule was left active")
