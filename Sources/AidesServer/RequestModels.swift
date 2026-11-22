@@ -17,6 +17,7 @@ struct NewTask: Decodable {
     let modelID: UUID?
     let scheduledAt: Date?
     let kind: WorkKind?
+    let sharedMemoryIDs: [UUID]?
 }
 struct NewReview: Decodable {
     let title: String

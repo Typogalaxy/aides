@@ -13,10 +13,33 @@ extension AidesService {
         return try await change { state in
             let scope = try Self.workScope(thread: input.threadID, project: input.projectID, in: state)
             let profile = try Self.workModel(input.modelID, kind: kind, in: state)
-            state.app.tasks.append(Self.makeTask(
+            var task = Self.makeTask(
                 title: title, instruction: instruction, threadID: scope.threadID,
                 projectID: scope.projectID, profile: profile, kind: kind, scheduledAt: input.scheduledAt
-            ))
+            )
+            let requestedIDs = input.sharedMemoryIDs ?? []
+            if !requestedIDs.isEmpty {
+                let membership = scope.projectID.map { "project:\($0.uuidString.lowercased())" }
+                let area = state.app.threads.first(where: { $0.id == scope.threadID && $0.role == .area })
+                    .map { "area:\($0.id.uuidString.lowercased())" }
+                guard kind == .analysis, profile?.kind.isLocal == false,
+                      requestedIDs.count <= 4, Set(requestedIDs).count == requestedIDs.count else {
+                    throw Abort(.badRequest, reason: "Choose up to four authorized memories for a cloud task.")
+                }
+                let selected = try requestedIDs.map { id in
+                    guard let memory = state.memory.first(where: { $0.id == id && $0.sensitivity == .cloudAllowed }),
+                          memory.scope == "global" || memory.scope == membership || memory.scope == area else {
+                        throw Abort(.forbidden, reason: "A selected memory is outside this task’s sharing scope.")
+                    }
+                    return memory
+                }
+                let shared = selected.map { $0.key + ": " + $0.value }.joined(separator: "\n")
+                do { try CloudBoundary.validate(shared) } catch {
+                    throw Abort(.badRequest, reason: error.localizedDescription)
+                }
+                task.sharedMemories = selected
+            }
+            state.app.tasks.append(task)
         }
     }
 

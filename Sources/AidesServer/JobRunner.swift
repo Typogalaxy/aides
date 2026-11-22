@@ -105,15 +105,24 @@ actor JobRunner {
         guard model.kind.isLocal || work.approvedCloud else {
             throw StorageError("Cloud execution requires approval.")
         }
-        let input = codePrompt ?? work.instruction
+        var input = codePrompt ?? work.instruction
+        if let memories = work.sharedMemories, !memories.isEmpty {
+            input += "\n\nUser-approved reference facts:\n" + memories.map { $0.key + ": " + $0.value }.joined(separator: "\n")
+        }
         if !model.kind.isLocal {
             try CloudBoundary.validate(input)
             try await LocalReview.check("Send approved material to \(model.kind.rawValue)", data: input, in: snapshot)
             try Task.checkCancellation()
             let current = await store.snapshot()
-            guard current.app.settings.reviewModelID == snapshot.app.settings.reviewModelID,
+            let memoriesStillApproved = (work.sharedMemories ?? []).allSatisfy { saved in
+                current.memory.contains { record in
+                    record.id == saved.id && record.sensitivity == .cloudAllowed &&
+                    record.updatedAt == saved.updatedAt && record.value.utf8.elementsEqual(saved.value.utf8)
+                }
+            }
+            guard current.app.settings.reviewModelID == snapshot.app.settings.reviewModelID, memoriesStillApproved,
                   current.app.tasks.contains(where: { $0.id == work.id && $0.approvedCloud && $0.status == .running }) else {
-                throw StorageError("The approval or review policy changed before dispatch.")
+                throw StorageError("The approval, shared memory or review policy changed before dispatch.")
             }
         }
         if let provider = CodingReviewProvider(rawValue: model.kind.rawValue) {

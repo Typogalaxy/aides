@@ -86,6 +86,7 @@ public struct WorkItem: Codable, Identifiable, Sendable {
     public let scheduleID: UUID?
     public let instruction: String
     public var approvedCloud: Bool
+    public var sharedMemories: [MemoryRecord]?
     public var status: WorkStatus
     public var scheduledAt: Date?
     public var result: String?
