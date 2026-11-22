@@ -832,7 +832,7 @@ private extension ComputerExecutor {
         "space": 49, "home": 115, "end": 119, "pageup": 116, "pagedown": 121, "cmd+a": 0
     ]
 
-    static func isEligible(_ id: String) -> Bool {
+    internal static func isEligible(_ id: String) -> Bool {
         ComputerApp.isEligible(id) && id != Bundle.main.bundleIdentifier && !isSecurityApp(id)
     }
 
