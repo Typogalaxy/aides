@@ -60,7 +60,7 @@ import Testing
     try Data("old".utf8).write(to: file)
     let name = "com.typogalaxy.aides.test"
     let marker = [UInt8]("fixture".utf8)
-    #require(marker.withUnsafeBytes { setxattr(file.path, name, $0.baseAddress, $0.count, 0, 0) } == 0)
+    try #require(marker.withUnsafeBytes { setxattr(file.path, name, $0.baseAddress, $0.count, 0, 0) } == 0)
     try ProjectFiles.apply(path: "file.txt", expected: "old", replacement: "new", in: directory)
     var readBack = [UInt8](repeating: 0, count: marker.count)
     #expect(readBack.withUnsafeMutableBytes { getxattr(file.path, name, $0.baseAddress, $0.count, 0, 0) } == marker.count)
