@@ -19,7 +19,9 @@ public struct ModelClient: Sendable {
         return switch request.provider {
         case .stub:
             stubResponse(request)
-        case .ollama, .openAI, .anthropic:
+        case .ollama:
+            try await generateOllama(request)
+        case .openAI, .anthropic:
             try await generateRemote(request)
         }
     }
