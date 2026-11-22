@@ -23,6 +23,17 @@ extension AidesService {
                 }
                 task.toolkitGrant = try Self.makeToolkitGrant(input.toolkitResourceID, deviceID: deviceID, in: state)
             }
+            if let invocationID = input.toolkitInvocationID {
+                guard kind == .analysis, profile?.kind.isLocal == true else {
+                    throw Abort(.forbidden, reason: "Toolkit output may only be attached to a local analysis Worker.")
+                }
+                let reference = ToolkitWorkReceipt(invocationID: invocationID, requestedByDeviceID: deviceID)
+                guard let receipt = Self.activeToolkitReceipt(for: reference, in: state),
+                      input.toolkitResourceID == nil || input.toolkitResourceID == receipt.grantID else {
+                    throw Abort(.forbidden, reason: "The selected file output is unavailable or outside the task’s folder grant.")
+                }
+                task.toolkitReceipt = reference
+            }
             let requestedIDs = input.sharedMemoryIDs ?? []
             if !requestedIDs.isEmpty {
                 let membership = scope.projectID.map { "project:\($0.uuidString.lowercased())" }

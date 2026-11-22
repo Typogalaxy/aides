@@ -50,6 +50,14 @@ extension AidesService {
         return state.deviceFiles?.grants.first { $0.id == grant.resourceID }
     }
 
+    static func activeToolkitReceipt(for reference: ToolkitWorkReceipt, in state: ServerState) -> DeviceFileJob? {
+        guard state.app.devices.contains(where: { $0.id == reference.requestedByDeviceID }),
+              let files = state.deviceFiles, let job = files.jobs.first(where: { $0.id == reference.invocationID }),
+              job.status == .completed, job.operation == .list || job.operation == .read, job.result != nil,
+              files.grants.contains(where: { $0.id == job.grantID && $0.deviceID == job.deviceID }) else { return nil }
+        return job
+    }
+
     func acceptToolkitSuggestion(_ id: UUID, deviceID: UUID) async throws -> ToolkitInvocation {
         let suggestion = try Self.requireToolkitSuggestion(id, in: await store.snapshot())
         return try await invokeToolkit(

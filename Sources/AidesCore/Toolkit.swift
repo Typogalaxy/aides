@@ -142,3 +142,13 @@ public struct ToolkitWorkGrant: Codable, Sendable {
         self.requestedByDeviceID = requestedByDeviceID
     }
 }
+
+public struct ToolkitWorkReceipt: Codable, Sendable {
+    public let invocationID: UUID
+    public let requestedByDeviceID: UUID
+
+    public init(invocationID: UUID, requestedByDeviceID: UUID) {
+        self.invocationID = invocationID
+        self.requestedByDeviceID = requestedByDeviceID
+    }
+}

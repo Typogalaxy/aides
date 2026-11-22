@@ -22,6 +22,7 @@ struct NewTask: Decodable {
     let kind: WorkKind?
     let sharedMemoryIDs: [UUID]?
     let toolkitResourceID: UUID?
+    let toolkitInvocationID: UUID?
 }
 struct NewReview: Decodable {
     let title: String
