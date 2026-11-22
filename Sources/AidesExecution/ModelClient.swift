@@ -24,7 +24,7 @@ public struct ModelClient: Sendable {
         case .openAI:
             try await generateOpenAI(request)
         case .anthropic:
-            try await generateRemote(request)
+            try await generateAnthropic(request)
         }
     }
 
@@ -34,7 +34,4 @@ public struct ModelClient: Sendable {
         return ModelOutput(text: text, inputTokens: nil, outputTokens: nil)
     }
 
-    private func generateRemote(_ request: ModelRequest) async throws -> ModelOutput {
-        throw ModelExecutionError.invalidConfiguration
-    }
 }
