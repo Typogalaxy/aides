@@ -84,6 +84,11 @@ class OllamaFixture(BaseHTTPRequestHandler):
         )
         scope = "scoped" if "private-project-fixture" in system else "outside"
         answer = f'{request["model"]} / {scope}'
+        if any("Approved task and workspace snapshots:" in item["content"] for item in request["messages"]):
+            answer = json.dumps({
+                "summary": "Update the isolated fixture",
+                "changes": [{"path": "Example.swift", "contents": "let ready = true\n"}],
+            })
         # Echo only controlled markers, never the prompt or API credentials.
         response = json.dumps({
             "message": {"role": "assistant", "content": answer},
@@ -274,12 +279,39 @@ def exercise(server, mock_ollama):
     require("Follow-up interpretations" in done["result"], "Review did not include the follow-up round")
     print("PASS explicit external approval and structured review")
 
+    file = path / "Example.swift"
+    original = "let ready = false\n"
+    file.write_text(original, encoding="utf-8")
+    request = {
+        "title": "Isolated code proposal", "instruction": "Set ready to true.",
+        "modelID": local_a, "projectID": project["id"], "paths": ["Example.swift"],
+    }
+    client.post("/code-proposals", {**request, "paths": ["../Outside.swift"]}, status=400)
+    state = client.post("/code-proposals", request)
+    proposal = find(state["tasks"], title=request["title"], kind="codeProposal")
+    wait_for_task(client, proposal["id"], "completed")
+    proposal_path = f'/code-proposals/{proposal["id"]}'
+    details = client.request("GET", proposal_path)
+    require(details["changes"][0]["originalContents"] == original, "Proposal lost its review baseline")
+    require(file.read_text(encoding="utf-8") == original, "Generating a proposal edited the file")
+    file.write_text("local concurrent edit\n", encoding="utf-8")
+    apply = {"path": "Example.swift"}
+    client.post(proposal_path + "/apply", apply, status=409)
+    require(file.read_text(encoding="utf-8") == "local concurrent edit\n", "Apply overwrote a conflicting edit")
+    file.write_text(original, encoding="utf-8")
+    client.post(proposal_path + "/apply", apply)
+    client.post(proposal_path + "/apply", apply)
+    require(file.read_text(encoding="utf-8") == "let ready = true\n", "Explicit apply did not update the file")
+    require(client.request("GET", proposal_path)["appliedPaths"] == ["Example.swift"], "Apply was not idempotent")
+    print("PASS code proposal isolation, stale-file refusal, and explicit application")
+
     server.stop()
     server.start()
     restored = client.state()
     require(find(restored["projects"], id=project["id"]), "Project disappeared after restart")
     require(restored["settings"]["defaultModelID"] == local_b, "Default model did not persist")
     require(find(restored["tasks"], id=review["id"])["status"] == "completed", "Review did not persist")
+    require(client.request("GET", proposal_path)["appliedPaths"] == ["Example.swift"], "Approval did not persist")
     require(client.request("GET", "/memory")[0]["value"] == memory["value"], "Scoped memory did not persist")
     completed = [task for task in restored["tasks"] if task.get("scheduleID") == schedule["id"]]
     require(len(completed) == 1 and completed[0]["status"] == "completed", "Reminder was lost or repeated")
@@ -298,7 +330,7 @@ def main():
 
     try:
         with tempfile.TemporaryDirectory(prefix="aides-smoke-") as directory:
-            server = IsolatedServer(binary, Path(directory))
+            server = IsolatedServer(binary, Path(directory).resolve())
             with ThreadingHTTPServer(("127.0.0.1", 0), OllamaFixture) as mock_ollama:
                 fixture_thread = threading.Thread(target=mock_ollama.serve_forever, daemon=True)
                 fixture_thread.start()
