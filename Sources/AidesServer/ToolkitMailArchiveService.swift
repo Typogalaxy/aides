@@ -23,7 +23,7 @@ extension AidesService {
         let preview: ToolkitMailMessage
         do {
             preview = try await ToolkitMailConnector().read(
-                account: access.account, token: access.token, messageID: input.messageID, includeBody: false
+                account: access.account, token: try await access.token(), messageID: input.messageID, includeBody: false
             )
         } catch {
             throw Self.mailFailure(error)
@@ -81,9 +81,15 @@ extension AidesService {
         let status: ToolkitMailArchiveStatus
         let failure: String?
         do {
-            try await ToolkitMailConnector().archive(
-                account: access.account, token: access.token, messageID: archive.messageID
-            )
+            let token = try await access.token()
+            let current = await store.snapshot()
+            try Self.requireMailDevice(archive.requestedByDeviceID, in: current)
+            try Self.requireMailDevice(deviceID, in: current)
+            guard current.toolkitMailArchives?[id]?.status == .archiving else {
+                throw Abort(.conflict, reason: "The archive authorization changed.")
+            }
+            try Task.checkCancellation()
+            try await ToolkitMailConnector().archive(account: access.account, token: token, messageID: archive.messageID)
             status = .archived
             failure = nil
         } catch {

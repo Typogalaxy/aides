@@ -70,6 +70,20 @@ def exercise(server):
             "Mail account discovery lost a provider")
     require("synthetic-mail-token" not in json.dumps(records), "Mail token leaked into account discovery")
     require(next(item for item in records if item["id"] == "work")["available"], "Protected token was not resolved")
+    oauth = folder / "mail-home.oauth.json"
+    credentials = json.dumps({"clientID": "synthetic-client", "refreshToken": "synthetic-refresh-token"})
+    save_private(oauth, credentials)
+    save_private(folder / "mail-private.oauth.json", credentials)
+    records = client.request("GET", accounts)
+    require("synthetic-refresh-token" not in json.dumps(records), "Mail OAuth secret leaked into account discovery")
+    require(next(item for item in records if item["id"] == "home")["available"], "Protected OAuth config was not resolved")
+    require(not next(item for item in records if item["id"] == "private")["available"],
+            "Fastmail accepted unsupported refresh configuration")
+    oauth.chmod(0o644)
+    records = client.request("GET", accounts)
+    require(not next(item for item in records if item["id"] == "home")["available"],
+            "Group-readable OAuth credentials were accepted")
+    oauth.unlink()
     token.chmod(0o644)
     records = client.request("GET", accounts)
     require(not next(item for item in records if item["id"] == "work")["available"],

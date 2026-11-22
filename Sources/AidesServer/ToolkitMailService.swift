@@ -22,12 +22,23 @@ private struct MailAccountConfiguration: Decodable, Sendable {
         )
     }
 
-    func token(in storage: ToolkitHostConfiguration) throws -> String? {
-        let file = try storage.read(credentialFile ?? defaultCredentialFile)
-        let value = file ?? credentialEnvironment.flatMap { ProcessInfo.processInfo.environment[$0] }
+    func credential(in storage: ToolkitHostConfiguration) throws -> MailCredential? {
+        if let file = try storage.read(credentialFile ?? defaultCredentialFile) {
+            return Self.accessToken(file).map(MailCredential.accessToken)
+        }
+        if provider != .fastmail, let file = try storage.read("mail-\(id).oauth.json") {
+            guard let config = try? JSONDecoder().decode(ToolkitMailOAuthCredentials.self, from: Data(file.utf8)),
+                  config.isValid else { return nil }
+            return .oauth(config)
+        }
+        return credentialEnvironment.flatMap {
+            Self.accessToken(ProcessInfo.processInfo.environment[$0])
+        }.map(MailCredential.accessToken)
+    }
+
+    private static func accessToken(_ value: String?) -> String? {
         guard let token = value?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty,
-              token.utf8.count <= 16_384,
-              token.utf8.allSatisfy({ (33...126).contains($0) }) else { return nil }
+              token.utf8.count <= 16_384, token.utf8.allSatisfy({ (33...126).contains($0) }) else { return nil }
         return token
     }
 
@@ -71,9 +82,28 @@ enum MailAccessKind {
     case read, send, archive
 }
 
+enum MailCredential: Sendable {
+    case accessToken(String)
+    case oauth(ToolkitMailOAuthCredentials)
+}
+
 struct MailAccountAccess: Sendable {
     let account: ToolkitMailAccount
-    let token: String
+    let credential: MailCredential
+
+    func token() async throws -> String {
+        try Task.checkCancellation()
+        switch credential {
+        case let .accessToken(token):
+            return token
+        case let .oauth(credentials):
+            let token = try await ToolkitMailOAuthTokenBroker.shared.token(
+                provider: account.provider, accountID: account.id, credentials: credentials
+            )
+            try Task.checkCancellation()
+            return token
+        }
+    }
 }
 
 extension AidesService {
@@ -81,7 +111,7 @@ extension AidesService {
         try Self.requireMailDevice(deviceID, in: await store.snapshot())
         let storage = mailStorage
         return try mailConfiguration().map { configuration in
-            configuration.account(available: (try? configuration.token(in: storage)) != nil)
+            configuration.account(available: (try? configuration.credential(in: storage)) != nil)
         }
     }
 
@@ -105,7 +135,7 @@ extension AidesService {
         let result: [ToolkitMailMessage]
         do {
             result = try await ToolkitMailConnector().search(
-                account: access.account, token: access.token, query: query, limit: limit
+                account: access.account, token: try await access.token(), query: query, limit: limit
             )
         } catch {
             throw Self.mailFailure(error)
@@ -120,7 +150,7 @@ extension AidesService {
         let result: ToolkitMailMessage
         do {
             result = try await ToolkitMailConnector().read(
-                account: access.account, token: access.token, messageID: messageID
+                account: access.account, token: try await access.token(), messageID: messageID
             )
         } catch {
             throw Self.mailFailure(error)
@@ -138,7 +168,7 @@ extension AidesService {
         let result: ToolkitMailAttachmentPreview
         do {
             result = try await ToolkitMailConnector().previewAttachment(
-                account: access.account, token: access.token, messageID: messageID, selection: input
+                account: access.account, token: try await access.token(), messageID: messageID, selection: input
             )
         } catch ToolkitMailAttachmentPreviewError.changed {
             throw Abort(.conflict, reason: "The attachment changed. Open the message again.")
@@ -160,10 +190,14 @@ extension AidesService {
         }
     }
 
-    func createToolkitMailDraft(_ input: ToolkitMailDraftRequest, deviceID: UUID) async throws -> ToolkitMailDraft {
+    func createToolkitMailDraft(
+        _ input: ToolkitMailDraftRequest, deviceID: UUID, expectedAccount: ToolkitMailAccount? = nil,
+        authorize: @Sendable (ServerState) throws -> Void = { _ in }
+    ) async throws -> ToolkitMailDraft {
         try Self.validateMailDraft(input)
         return try await store.update { state in
             try Self.requireMailDevice(deviceID, in: state)
+            try authorize(state)
             if let existing = state.toolkitMailDrafts?[input.id] {
                 guard existing.request == input, existing.requestedByDeviceID == deviceID else {
                     throw Abort(.conflict, reason: "This mail draft ID has already been used.")
@@ -174,6 +208,12 @@ extension AidesService {
                 throw Abort(.gone, reason: "This mail receipt expired.")
             }
             let account = try mailAccess(id: input.accountID, kind: .send).account
+            if let expectedAccount {
+                guard expectedAccount.id == account.id, expectedAccount.provider == account.provider,
+                      expectedAccount.address.caseInsensitiveCompare(account.address) == .orderedSame else {
+                    throw Abort(.conflict, reason: "The selected mail account changed. Review the sender again.")
+                }
+            }
             var drafts = state.toolkitMailDrafts ?? [:]
             let active = drafts.values.filter { $0.status == .awaitingConfirmation || $0.status == .sending }
             guard active.count < 24 else {
@@ -219,7 +259,15 @@ extension AidesService {
         let status: ToolkitMailDraftStatus
         let failure: String?
         do {
-            try await ToolkitMailConnector().send(draft: draft, account: access.account, token: access.token)
+            let token = try await access.token()
+            let current = await store.snapshot()
+            try Self.requireMailDevice(draft.requestedByDeviceID, in: current)
+            try Self.requireMailDevice(deviceID, in: current)
+            guard current.toolkitMailDrafts?[id]?.status == .sending else {
+                throw Abort(.conflict, reason: "The mail dispatch authorization changed.")
+            }
+            try Task.checkCancellation()
+            try await ToolkitMailConnector().send(draft: draft, account: access.account, token: token)
             status = .submitted
             failure = nil
         } catch {
@@ -297,13 +345,13 @@ extension AidesService {
         if kind == .archive && configured.allowArchive != true {
             throw Abort(.forbidden, reason: "Archiving is disabled for this mail account.")
         }
-        guard let token = try? configured.token(in: mailStorage) else {
+        guard let credential = try? configured.credential(in: mailStorage) else {
             throw Abort(.serviceUnavailable, reason: "Configure the protected mail account credential on the host.")
         }
-        return MailAccountAccess(account: configured.account(available: true), token: token)
+        return MailAccountAccess(account: configured.account(available: true), credential: credential)
     }
 
-    private static func validateMailDraft(_ input: ToolkitMailDraftRequest) throws {
+    static func validateMailDraft(_ input: ToolkitMailDraftRequest) throws {
         guard (1...5).contains(input.to.count), input.to.allSatisfy(MailAccountConfiguration.isMailAddress),
               Set(input.to.map { $0.lowercased() }).count == input.to.count,
               !input.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, input.subject.utf8.count <= 240,
@@ -321,7 +369,11 @@ extension AidesService {
     }
 
     static func mailFailure(_ error: Error) -> Abort {
-        switch error as? ToolkitMailConnectorError {
+        if let abort = error as? Abort { return abort }
+        if error as? ToolkitMailOAuthError == .reauthorizationRequired {
+            return Abort(.forbidden, reason: "Reauthorize the mail account and update its protected OAuth credentials.")
+        }
+        return switch error as? ToolkitMailConnectorError {
         case .unauthorized, .wrongAccount:
             Abort(.forbidden, reason: "The provider did not authorize this account. Check its token and permissions.")
         case .rejected:

@@ -51,12 +51,36 @@ a selected message on one account.
   must also have mail submission access. A token used to archive messages needs
   mail write access. [Fastmail JMAP and authentication](https://www.fastmail.com/dev/)
 
-You can replace an expired token in its host file. Aides reads the file for
-each operation. OAuth sign-in and token refresh currently take place outside
-Aides. For local development, `AIDES_MAIL_ACCOUNTS` can supply the same JSON
+You can replace an expired static token in its host file. Aides reads the file
+before each operation. For local development, `AIDES_MAIL_ACCOUNTS` can supply the same JSON
 when the protected configuration file is absent. Each development account can
 also reference a specific host environment variable using
 `"credentialEnvironment":"AIDES_MAIL_EXAMPLE_TOKEN"`.
+
+## Keep Gmail or Outlook connected with OAuth
+
+For long-running watches, obtain a refresh token through the provider’s
+consent flow. Place it in `mail-<id>.oauth.json` next to the account
+configuration, with mode `0600`. The fields are `clientID`, `refreshToken`
+and `clientSecret` when required by your registered application. Use the mail
+scopes listed above and request offline access during consent. Gmail and
+Outlook refresh through their official token endpoints. The app’s Microsoft
+registration must support the account type served by its common endpoint.
+
+A static `mail-<id>.token` file takes precedence. To enable renewal, remove
+that file from the host credential directory once the OAuth configuration is
+in place. Fastmail continues to use a static protected token. Account consent
+takes place with the provider outside Aides.
+
+Aides caches access tokens in memory and renews them before expiration. It
+uses a provider-returned replacement refresh token until the process exits.
+The protected OAuth file remains the startup source. If the provider revokes
+that grant, reauthorize and replace the file. A provider send or archive
+attempt is submitted once after obtaining a token.
+
+[Google offline OAuth access](https://developers.google.com/identity/protocols/oauth2/web-server#offline) ·
+[Microsoft token renewal](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow#refresh-the-access-token) ·
+[Microsoft refresh token lifetime](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)
 
 ## Confirm delivery
 
