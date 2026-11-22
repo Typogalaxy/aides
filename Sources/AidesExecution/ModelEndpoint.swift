@@ -61,7 +61,7 @@ extension ModelClient {
         payload: Input,
         headers: [String: String] = [:],
         expecting: Response.Type
-    ) async throws -> Response {
+    ) async throws -> (Response, Int) {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -70,9 +70,11 @@ extension ModelClient {
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
-        request.httpBody = try JSONEncoder().encode(payload)
+        let requestBody = try JSONEncoder().encode(payload)
+        request.httpBody = requestBody
         let response = try await exchange(request)
         try Task.checkCancellation()
-        return try ModelTransport.decode(expecting, from: response)
+        let body = try ModelTransport.decode(expecting, from: response)
+        return (body, requestBody.count + response.body.count)
     }
 }

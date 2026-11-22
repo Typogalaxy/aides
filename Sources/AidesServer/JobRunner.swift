@@ -170,6 +170,7 @@ actor JobRunner {
                     state.app.metrics.requests += 1
                     state.app.metrics.inputTokens += output.inputTokens ?? 0
                     state.app.metrics.outputTokens += output.outputTokens ?? 0
+                    state.app.metrics.networkBytes += output.networkBytes
                 }
                 if (work.kind == .conversation || work.kind == .reminder),
                    let i = state.app.threads.firstIndex(where: { $0.id == work.threadID }) {

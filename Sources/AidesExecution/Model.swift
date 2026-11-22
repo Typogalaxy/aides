@@ -87,11 +87,13 @@ public struct ModelOutput: Sendable {
     public let text: String
     public let inputTokens: Int?
     public let outputTokens: Int?
+    public let networkBytes: Int
 
-    public init(text: String, inputTokens: Int?, outputTokens: Int?) {
+    public init(text: String, inputTokens: Int?, outputTokens: Int?, networkBytes: Int = 0) {
         self.text = text
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.networkBytes = networkBytes
     }
 }
 

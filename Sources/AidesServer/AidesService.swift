@@ -1,5 +1,6 @@
 import AidesCore
 import AidesExecution
+import Darwin
 import Foundation
 import Vapor
 
@@ -62,7 +63,21 @@ struct AidesService: Sendable {
             snapshot = await store.snapshot()
         }
         guard snapshot.app.devices.contains(where: { $0.id == deviceID }) else { throw Abort(.unauthorized) }
-        return snapshot.app
+        var app = snapshot.app
+        let storageFiles = ["aides.sqlite3", "aides.sqlite3-wal", "aides.sqlite3-shm"]
+        app.metrics.storageBytes = storageFiles.reduce(0) { total, name in
+            let file = host.directory.appending(path: name)
+            return total + ((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        if result == KERN_SUCCESS { app.metrics.processMemoryBytes = Int(clamping: info.resident_size) }
+        return app
     }
 
     func createThread(_ input: NewThread) async throws -> AppState {

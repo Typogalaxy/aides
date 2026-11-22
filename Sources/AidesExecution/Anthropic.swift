@@ -7,7 +7,7 @@ extension ModelClient {
             acceptedBases: ["", "/v1"],
             officialHost: "api.anthropic.com"
         )
-        let response = try await post(
+        let (response, networkBytes) = try await post(
             endpoint,
             payload: AnthropicInput(
                 model: request.model,
@@ -40,7 +40,8 @@ extension ModelClient {
         return ModelOutput(
             text: text,
             inputTokens: response.usage?.totalInputTokens,
-            outputTokens: response.usage?.outputTokens
+            outputTokens: response.usage?.outputTokens,
+            networkBytes: networkBytes
         )
     }
 }

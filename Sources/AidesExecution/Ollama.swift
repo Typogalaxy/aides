@@ -17,7 +17,7 @@ extension ModelClient {
         if let system = request.system, !system.isEmpty {
             messages.insert(WireMessage(role: "system", content: system), at: 0)
         }
-        let response = try await post(
+        let (response, networkBytes) = try await post(
             endpoint,
             payload: OllamaInput(model: localName, messages: messages, options: .init(numPredict: request.maxOutputTokens)),
             expecting: OllamaOutput.self
@@ -32,7 +32,8 @@ extension ModelClient {
         return ModelOutput(
             text: response.message.content,
             inputTokens: response.inputTokens,
-            outputTokens: response.outputTokens
+            outputTokens: response.outputTokens,
+            networkBytes: networkBytes
         )
     }
 }
