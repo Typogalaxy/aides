@@ -26,6 +26,7 @@ struct WorkspaceView: View {
     let updates: DesktopUpdates
 
     @ViewState private var page = WorkspacePage.conversations
+    @ViewState private var settingsPane = SettingsPane.models
     @ViewState private var conversationID: UUID?
     @ViewState private var projectID: UUID?
     @ViewState private var inspectorTaskID: UUID?
@@ -150,6 +151,14 @@ struct WorkspaceView: View {
 
             Spacer()
 
+            if workspace.fileRelay.pendingMove != nil {
+                Button("Review file move") {
+                    page = .settings
+                    settingsPane = .files
+                }
+                .buttonStyle(.bordered)
+            }
+
             if updates.hasUpdate {
                 Button(action: updates.check) {
                     Label("Update available", systemImage: "arrow.down.circle")
@@ -192,7 +201,7 @@ struct WorkspaceView: View {
         case .activity:
             ActivityView(state: workspace.state)
         case .settings:
-            SettingsView(workspace: workspace, updates: updates)
+            SettingsView(workspace: workspace, updates: updates, pane: $settingsPane)
         }
     }
 

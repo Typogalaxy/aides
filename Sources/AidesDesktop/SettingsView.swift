@@ -5,7 +5,7 @@ struct SettingsView: View {
     let workspace: Workspace
     let updates: DesktopUpdates
 
-    @ViewState private var pane = SettingsPane.models
+    @Binding var pane: SettingsPane
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -17,23 +17,25 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(maxWidth: 460)
+            .frame(maxWidth: 520)
             .padding(16)
 
             switch pane {
             case .models: ModelSettingsView(workspace: workspace)
             case .memory: MemorySettingsView(workspace: workspace)
             case .devices: DeviceSettingsView(workspace: workspace)
+            case .files: DeviceFilesView(workspace: workspace)
             case .application: ApplicationSettingsView(updates: updates)
             }
         }
     }
 }
 
-private enum SettingsPane: String, CaseIterable {
+enum SettingsPane: String, CaseIterable {
     case models = "Models"
     case memory = "Memory"
     case devices = "Devices"
+    case files = "Files"
     case application = "Application"
 }
 
