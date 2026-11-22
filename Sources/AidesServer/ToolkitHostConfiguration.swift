@@ -2,16 +2,16 @@ import Darwin
 import Foundation
 import Vapor
 
-enum ToolkitHostConfiguration {
-    static func read(_ name: String) throws -> String? {
+struct ToolkitHostConfiguration: Sendable {
+    let directory: URL
+
+    func read(_ name: String) throws -> String? {
         let allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
         guard (1...96).contains(name.utf8.count), name != ".", name != "..",
               name.utf8.allSatisfy(allowed.utf8.contains) else {
             throw Abort(.serviceUnavailable, reason: "Invalid Toolkit host configuration filename.")
         }
-        let host = ProcessInfo.processInfo.environment["AIDES_DATA_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Aides")
-        let folder = host.appending(path: "Toolkit", directoryHint: .isDirectory)
+        let folder = directory.appending(path: "Toolkit", directoryHint: .isDirectory)
         let directory = open(folder.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         if directory < 0 && errno == ENOENT { return nil }
         guard directory >= 0 else { throw permissionError }
@@ -33,7 +33,7 @@ enum ToolkitHostConfiguration {
         return text
     }
 
-    private static var permissionError: Abort {
+    private var permissionError: Abort {
         Abort(.serviceUnavailable, reason: "Toolkit configuration must be private, local, and readable by the server operator.")
     }
 }

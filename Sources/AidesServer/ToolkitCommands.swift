@@ -13,8 +13,8 @@ struct ToolkitCommandProfile: Decodable, Sendable {
 
     var summary: ToolkitCommand { ToolkitCommand(id: id, label: label, projectID: projectID) }
 
-    static func configured() throws -> [Self] {
-        let raw = try ToolkitHostConfiguration.read("commands.json")
+    static func configured(in directory: URL) throws -> [Self] {
+        let raw = try ToolkitHostConfiguration(directory: directory).read("commands.json")
             ?? ProcessInfo.processInfo.environment["AIDES_TOOLKIT_COMMANDS"]
         guard let raw, !raw.isEmpty else { return [] }
         guard raw.utf8.count <= 24_576,
@@ -138,7 +138,7 @@ func registerToolkitCommandRoutes(_ toolkit: RoutesBuilder, service: AidesServic
     let commands = toolkit.grouped("commands")
     commands.get { request in
         _ = try await service.authenticatedDevice(request)
-        return try json(ToolkitCommandProfile.configured().map(\.summary))
+        return try json(ToolkitCommandProfile.configured(in: service.host.directory).map(\.summary))
     }
     commands.get("runs") { request in
         _ = try await service.authenticatedDevice(request)
@@ -147,7 +147,7 @@ func registerToolkitCommandRoutes(_ toolkit: RoutesBuilder, service: AidesServic
     }
     commands.post(":command", "run") { request in
         let device = try await service.authenticatedDevice(request)
-        guard let profile = try ToolkitCommandProfile.configured().first(where: { $0.id == request.parameters.get("command") }) else {
+        guard let profile = try ToolkitCommandProfile.configured(in: service.host.directory).first(where: { $0.id == request.parameters.get("command") }) else {
             throw Abort(.notFound)
         }
         return try await json(service.commands.start(decode(StartToolkitCommand.self, request), profile: profile, deviceID: device))
