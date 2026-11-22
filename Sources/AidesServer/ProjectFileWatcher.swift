@@ -61,15 +61,14 @@ enum ProjectFileWatcher {
         ) else { return nil }
 
         let prefix = root.path + "/"
-        let ignored = Set(["node_modules", "deriveddata", "secrets", "credentials", "keychains"])
+        let ignored = Set(["node_modules", "deriveddata"])
         var files: [String: ProjectFileSnapshot.Stamp] = [:]
         var visited = 0
         for case let item as URL in paths {
             visited += 1
             guard visited <= 2_000, !Task.isCancelled, item.path.hasPrefix(prefix) else { return nil }
             let name = item.lastPathComponent.lowercased()
-            guard !ignored.contains(name), !["pem", "key", "p12", "pfx", "keychain", "keychain-db"].contains(item.pathExtension.lowercased()),
-                  !name.hasPrefix("id_rsa"), !name.hasPrefix("id_ed25519") else {
+            guard !ignored.contains(name), !ProjectFiles.isProtectedComponent(name) else {
                 paths.skipDescendants()
                 continue
             }
