@@ -97,23 +97,31 @@ extension AidesService {
                 throw Abort(.conflict, reason: "This mail account changed. Review its authorization before searching again.")
             }
         }
+        let result: [ToolkitMailMessage]
         do {
-            return try await ToolkitMailConnector().search(
+            result = try await ToolkitMailConnector().search(
                 account: access.account, token: access.token, query: query, limit: limit
             )
         } catch {
             throw Self.mailFailure(error)
         }
+        try Self.requireMailDevice(deviceID, in: await store.snapshot())
+        return result
     }
 
     func readToolkitMail(accountID: String, messageID: String, deviceID: UUID) async throws -> ToolkitMailMessage {
         try Self.requireMailDevice(deviceID, in: await store.snapshot())
         let access = try mailAccess(id: accountID)
+        let result: ToolkitMailMessage
         do {
-            return try await ToolkitMailConnector().read(account: access.account, token: access.token, messageID: messageID)
+            result = try await ToolkitMailConnector().read(
+                account: access.account, token: access.token, messageID: messageID
+            )
         } catch {
             throw Self.mailFailure(error)
         }
+        try Self.requireMailDevice(deviceID, in: await store.snapshot())
+        return result
     }
 
     func toolkitMailDrafts(deviceID: UUID) async throws -> [ToolkitMailDraft] {
