@@ -33,6 +33,9 @@ struct DeviceFileJob: Codable, Identifiable, Sendable {
     let grantID: UUID
     let deviceID: UUID
     let requestedByDeviceID: UUID?
+    let toolkitManaged: Bool?
+
+    var isToolkitInvocation: Bool { toolkitManaged ?? (requestedByDeviceID != nil) }
     let grantName: String
     let operation: DeviceFileOperation
     let path: String
@@ -45,9 +48,13 @@ struct DeviceFileJob: Codable, Identifiable, Sendable {
     let createdAt: Date
     var updatedAt: Date
 
-    init(id: UUID, grant: DeviceFileGrant, requestedByDeviceID: UUID?, input: NewDeviceFileJob, path: String, now: Date) {
+    init(
+        id: UUID, grant: DeviceFileGrant, requestedByDeviceID: UUID, toolkitManaged: Bool,
+        input: NewDeviceFileJob, path: String, now: Date
+    ) {
         self.id = id
         self.requestedByDeviceID = requestedByDeviceID
+        self.toolkitManaged = toolkitManaged
         grantID = grant.id
         deviceID = grant.deviceID
         grantName = grant.name
@@ -81,7 +88,15 @@ struct DeviceFileState: Codable, Sendable {
 
     mutating func revoke(_ ids: Set<UUID>, at now: Date) {
         grants.removeAll { ids.contains($0.id) }
-        for index in jobs.indices where ids.contains(jobs[index].grantID) && jobs[index].status.isActive {
+        revokeJobs(at: now) { ids.contains($0.grantID) }
+    }
+
+    mutating func revokeRequests(from deviceID: UUID, at now: Date) {
+        revokeJobs(at: now) { $0.requestedByDeviceID == deviceID }
+    }
+
+    private mutating func revokeJobs(at now: Date, matching predicate: (DeviceFileJob) -> Bool) {
+        for index in jobs.indices where jobs[index].status.isActive && predicate(jobs[index]) {
             let running = jobs[index].status == .running
             jobs[index].status = running ? .interrupted : .cancelled
             jobs[index].error = running
@@ -94,7 +109,7 @@ struct DeviceFileState: Codable, Sendable {
     mutating func trimHistory() {
         let recent = Set(jobs.reversed().lazy.filter { !$0.status.isActive }.prefix(32).map(\.id))
         let pruned = jobs.lazy.filter { !$0.status.isActive && !recent.contains($0.id) }
-        let invocationIDs = pruned.filter { $0.requestedByDeviceID != nil }.map(\.id)
+        let invocationIDs = pruned.filter(\.isToolkitInvocation).map(\.id)
         if !invocationIDs.isEmpty {
             retiredInvocationIDs = (retiredInvocationIDs ?? []).union(invocationIDs)
         }
@@ -197,7 +212,7 @@ extension AidesService {
         return try await updateDeviceFiles(for: deviceID, authorize: authorize) { files, now in
             if let invocationID {
                 if let job = files.jobs.first(where: { $0.id == invocationID }) {
-                    guard job.requestedByDeviceID == deviceID, job.grantID == input.grantID,
+                    guard job.isToolkitInvocation, job.requestedByDeviceID == deviceID, job.grantID == input.grantID,
                           job.operation == input.operation, job.path == path, job.destination == input.destination,
                           job.text == input.text, job.expectedText == input.expectedText else {
                         throw Abort(.conflict, reason: "This invocation ID has already been used.")
@@ -218,7 +233,7 @@ extension AidesService {
                 throw Abort(.conflict, reason: "The device file job queue is full.")
             }
             let job = DeviceFileJob(
-                id: invocationID ?? UUID(), grant: grant, requestedByDeviceID: invocationID == nil ? nil : deviceID,
+                id: invocationID ?? UUID(), grant: grant, requestedByDeviceID: deviceID, toolkitManaged: invocationID != nil,
                 input: input, path: path, now: now
             )
             files.jobs.append(job)
@@ -280,7 +295,9 @@ extension AidesService {
     static func revokeDeviceFileAccess(deviceID: UUID, in state: inout ServerState) {
         guard var files = state.deviceFiles else { return }
         let ids = Set(files.grants.lazy.filter { $0.deviceID == deviceID }.map(\.id))
-        files.revoke(ids, at: .now)
+        let now = Date.now
+        files.revoke(ids, at: now)
+        files.revokeRequests(from: deviceID, at: now)
         files.trimHistory()
         state.deviceFiles = files
     }

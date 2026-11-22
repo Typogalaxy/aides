@@ -427,10 +427,16 @@ def exercise(server, mock_ollama):
     require(receipt["status"] == "completed", "Target device did not complete its file job")
     toolkit_receipt = exercise_toolkit(anonymous, client, guest_client, owner, grant)
     queued = client.post("/device-files/jobs", read)
+    owner_folder = client.post("/device-files/grants", {"name": "Owner folder"})
+    outgoing = guest_client.post("/toolkit/invocations", {
+        "id": str(uuid.uuid4()).upper(), "tool": "files.list", "resourceID": owner_folder["id"], "path": ""
+    })
     client.request("DELETE", "/devices/" + guest["deviceID"])
     revoked_files = client.request("GET", "/device-files")
     require(find(revoked_files["grants"], id=grant["id"]) is None, "Device revocation left a folder grant active")
     require(find(revoked_files["jobs"], id=queued["id"])["status"] == "cancelled", "Device revocation left a queued job active")
+    require(find(revoked_files["jobs"], id=outgoing["id"])["status"] == "cancelled",
+            "Revoked device left an outgoing Toolkit operation active")
     guest_client.request("GET", "/state", status=401)
     print("PASS device authentication, isolated file claims, and grant revocation")
 

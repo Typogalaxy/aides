@@ -38,7 +38,7 @@ extension AidesService {
 
     func toolkitInvocation(_ id: UUID, deviceID: UUID) async throws -> ToolkitInvocation {
         let files = try await deviceFileManifest(deviceID: deviceID)
-        if let job = files.jobs.first(where: { $0.id == id && $0.requestedByDeviceID != nil }) {
+        if let job = files.jobs.first(where: { $0.id == id && $0.isToolkitInvocation }) {
             return job.toolkitInvocation
         }
         if files.retiredInvocationIDs?.contains(id) == true {
