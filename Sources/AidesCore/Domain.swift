@@ -98,6 +98,8 @@ public struct WorkItem: Codable, Identifiable, Sendable {
     public var sharedMemories: [MemoryRecord]?
     public var toolkitGrant: ToolkitWorkGrant?
     public var toolkitReceipt: ToolkitWorkReceipt?
+    public var toolkitLocalSelection: ToolkitLocalSelection?
+    public var toolkitLocalDeviceID: UUID?
     public var toolkitSuggestion: ToolkitSuggestion?
     public var toolkitSuggestionMessageID: UUID?
     public var status: WorkStatus

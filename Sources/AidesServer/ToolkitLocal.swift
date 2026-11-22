@@ -62,6 +62,28 @@ struct ToolkitLocalQuery: Codable, Sendable {
     var path: String?
     var limit: Int?
 
+    static func workerSelection(_ selection: ToolkitLocalSelection, projectID: UUID?) throws -> Self {
+        guard let action = ToolkitLocalAction(rawValue: selection.action) else {
+            throw Abort(.badRequest, reason: "Unknown local Toolkit action.")
+        }
+        let descriptor = action.descriptor
+        if descriptor.requiresProject && projectID == nil {
+            throw Abort(.forbidden, reason: "Choose a project for this Toolkit action.")
+        }
+        guard (1...20).contains(selection.limit ?? 10),
+              descriptor.acceptsQuery || selection.query == nil,
+              descriptor.acceptsPath || selection.path == nil else {
+            throw Abort(.badRequest, reason: "These arguments do not match the local tool.")
+        }
+        _ = try AidesService.optional(selection.query ?? "", max: 120)
+        if let path = selection.path, path != "." {
+            do { try ProjectFiles.validate(path: path) } catch {
+                throw Abort(.badRequest, reason: "Choose a valid project-relative path.")
+            }
+        }
+        return Self(action: action, query: selection.query, path: selection.path, limit: selection.limit)
+    }
+
     static func execute(
         _ input: ToolkitLocalQuery, threadID: UUID?, projectID: UUID?, in state: ServerState,
         allowProjectDirectory: Bool = false

@@ -152,3 +152,10 @@ public struct ToolkitWorkReceipt: Codable, Sendable {
         self.requestedByDeviceID = requestedByDeviceID
     }
 }
+
+public struct ToolkitLocalSelection: Codable, Sendable {
+    public let action: String
+    public let query: String?
+    public let path: String?
+    public let limit: Int?
+}

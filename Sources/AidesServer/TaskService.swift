@@ -34,6 +34,15 @@ extension AidesService {
                 }
                 task.toolkitReceipt = reference
             }
+            if let selection = input.toolkitLocalSelection {
+                guard kind == .analysis, profile?.kind.isLocal == true, input.toolkitInvocationID == nil,
+                      state.app.devices.contains(where: { $0.id == deviceID }) else {
+                    throw Abort(.forbidden, reason: "Choose one evidence source for a local analysis Worker.")
+                }
+                _ = try ToolkitLocalQuery.workerSelection(selection, projectID: scope.projectID)
+                task.toolkitLocalSelection = selection
+                task.toolkitLocalDeviceID = deviceID
+            }
             let requestedIDs = input.sharedMemoryIDs ?? []
             if !requestedIDs.isEmpty {
                 let membership = scope.projectID.map { "project:\($0.uuidString.lowercased())" }

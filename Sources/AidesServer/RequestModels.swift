@@ -23,6 +23,7 @@ struct NewTask: Decodable {
     let sharedMemoryIDs: [UUID]?
     let toolkitResourceID: UUID?
     let toolkitInvocationID: UUID?
+    let toolkitLocalSelection: ToolkitLocalSelection?
 }
 struct NewReview: Decodable {
     let title: String
