@@ -90,7 +90,7 @@ import Testing
     try #require(setACL(["+a", "everyone deny delete"]) == 0)
     try ProjectFiles.apply(path: "file.txt", expected: "old", replacement: "new", in: directory)
     let acl = try #require(acl_get_file(file.path, ACL_TYPE_EXTENDED))
-    defer { acl_free(acl) }
+    defer { acl_free(UnsafeMutableRawPointer(acl)) }
     var entry: acl_entry_t?
-    #expect(acl_get_entry(acl, ACL_FIRST_ENTRY, &entry) == 0)
+    #expect(acl_get_entry(acl, Int32(ACL_FIRST_ENTRY.rawValue), &entry) == 0)
 }
