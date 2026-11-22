@@ -122,7 +122,8 @@ final class ComputerExecutor {
             try requireNoNewInput()
         }
         if allowBackground && !action.supportsBackground { throw Failure.backgroundUnsupported }
-        if action.kind == .activate {
+        let firstForegroundObservation = action.kind == .observe && activeAppID == nil && !allowBackground
+        if action.kind == .activate || firstForegroundObservation {
             guard frontmost == app.processIdentifier || frontmost == ownedForegroundPID
                     || frontmost == ProcessInfo.processInfo.processIdentifier else { throw Failure.takeover }
             if frontmost != app.processIdentifier {
@@ -138,7 +139,7 @@ final class ComputerExecutor {
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else {
                 throw Failure.unavailable
             }
-            return try await observe(appID)
+            return try await observe(appID, requiringForeground: true)
         }
         if action.kind == .observe {
             // A request to inspect another app uses its own approved app scope.
