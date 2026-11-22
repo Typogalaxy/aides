@@ -1,3 +1,4 @@
+import AidesCore
 import SwiftUI
 
 extension Color {
@@ -86,12 +87,12 @@ struct WorkspaceView: View {
         }
         .onChange(of: workspace.state.threads.map(\.id), initial: true) { _, ids in
             if let conversationID, ids.contains(conversationID) { return }
-            conversationID = workspace.state.threads.first { $0.role == "secretary" }?.id ?? ids.first
+            conversationID = workspace.state.threads.first { $0.role == .secretary }?.id ?? ids.first
         }
         .onChange(of: page) { _, _ in inspectorTaskID = nil }
     }
 
-    private var inspectorTask: WorkerTask? {
+    private var inspectorTask: WorkItem? {
         workspace.state.tasks.first { $0.id == inspectorTaskID }
     }
 
@@ -121,7 +122,7 @@ struct WorkspaceView: View {
                             .font(.callout.weight(page == destination ? .semibold : .regular))
                         Spacer()
                         if destination == .workers {
-                            let approvals = workspace.state.tasks.count { $0.status == "waitingApproval" }
+                            let approvals = workspace.state.tasks.count { $0.status == .waitingApproval }
                             if approvals > 0 {
                                 Text(approvals.formatted())
                                     .font(.caption.monospacedDigit())

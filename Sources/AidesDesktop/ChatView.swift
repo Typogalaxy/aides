@@ -1,3 +1,4 @@
+import AidesCore
 import SwiftUI
 
 struct ChatView: View {
@@ -10,7 +11,7 @@ struct ChatView: View {
     @ViewState private var showsReview = false
     @ViewState private var showsArchive = false
 
-    private var tasks: [WorkerTask] {
+    private var tasks: [WorkItem] {
         workspace.state.tasks.filter { $0.threadID == conversation.id }
     }
 
@@ -19,7 +20,7 @@ struct ChatView: View {
             HStack(spacing: 15) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(conversation.title).font(.headline)
-                    Text(conversation.role.capitalized).font(.caption).foregroundStyle(.secondary)
+                    Text(conversation.role.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if conversation.archivedAt == nil {
@@ -30,7 +31,7 @@ struct ChatView: View {
                     } label: {
                         Label("Assign task", systemImage: "arrow.turn.down.right")
                     }
-                    if conversation.role != "secretary" {
+                    if conversation.role != .secretary {
                         Button {
                             showsArchive = true
                         } label: {
@@ -166,18 +167,18 @@ struct ChatView: View {
 }
 
 private struct ChatMessageView: View {
-    let message: ChatMessage
+    let message: Message
     let conversationTitle: String
 
     private var author: String {
         if message.isUser { return "You" }
-        if message.role == "system" { return "System" }
+        if message.role == .system { return "System" }
         return conversationTitle
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 11) {
-            Image(systemName: message.isUser ? "person" : (message.role == "system" ? "gearshape" : "sparkle"))
+            Image(systemName: message.isUser ? "person" : (message.role == .system ? "gearshape" : "sparkle"))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(message.isUser ? Color.secondary : Color.aidesAccent)
                 .frame(width: 28, height: 28)

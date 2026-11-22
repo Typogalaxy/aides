@@ -1,3 +1,4 @@
+import AidesCore
 import SwiftUI
 
 struct NewReviewSheet: View {
@@ -69,33 +70,31 @@ struct NewReviewSheet: View {
 
 struct ReviewDetails: View {
     let workspace: Workspace
-    let review: WorkerTask
+    let review: WorkItem
 
     @ViewState private var clarification = ""
 
-    private var firstRound: [WorkerTask] {
+    private var firstRound: [WorkItem] {
         workspace.state.tasks.filter { $0.parentID == review.id }
     }
 
-    private var followUp: [WorkerTask] {
+    private var followUp: [WorkItem] {
         let initialIDs = Set(firstRound.map(\.id))
         return workspace.state.tasks.filter { $0.parentID.map(initialIDs.contains) == true }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            if let instruction = review.instruction {
-                Text(instruction).font(.callout).textSelection(.enabled)
-            }
+            Text(review.instruction).font(.callout).textSelection(.enabled)
             Divider()
             round("Independent interpretations", tasks: firstRound)
             if !followUp.isEmpty {
                 Divider()
                 round("After clarification", tasks: followUp)
             }
-            if review.status == "waiting" && followUp.isEmpty {
+            if review.status == .waiting && followUp.isEmpty {
                 Divider()
-                if firstRound.contains(where: { $0.status == "completed" && $0.result?.trimmed.isEmpty == false }) {
+                if firstRound.contains(where: { $0.status == .completed && $0.result?.trimmed.isEmpty == false }) {
                     TextField("Clarification", text: $clarification, axis: .vertical)
                         .lineLimit(3...6)
                         .textFieldStyle(.roundedBorder)
@@ -115,7 +114,7 @@ struct ReviewDetails: View {
         }
     }
 
-    private func round(_ name: String, tasks: [WorkerTask]) -> some View {
+    private func round(_ name: String, tasks: [WorkItem]) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             Text(name).font(.headline)
             ForEach(tasks) { task in
@@ -123,7 +122,7 @@ struct ReviewDetails: View {
                     Text(workspace.state.models.first { $0.id == task.modelID }?.name ?? task.title)
                         .font(.callout.weight(.medium))
                     TaskStatusView(task: task)
-                    if task.status == "waitingApproval" {
+                    if task.status == .waitingApproval {
                         ApprovalDetails(workspace: workspace, task: task)
                     }
                     if let error = task.error {
@@ -132,7 +131,7 @@ struct ReviewDetails: View {
                     if let result = task.result, !result.isEmpty {
                         Text(result).font(.callout).textSelection(.enabled)
                     }
-                    if task.status == "waiting" {
+                    if task.status == .waiting {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
                             .disabled(workspace.isWorking)
                     }
@@ -147,7 +146,7 @@ struct ReviewDetails: View {
 
 struct ApprovalDetails: View {
     let workspace: Workspace
-    let task: WorkerTask
+    let task: WorkItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -161,7 +160,7 @@ struct ApprovalDetails: View {
             Text("The following task instructions will be sent to the provider.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(task.instruction ?? task.title)
+            Text(task.instruction)
                 .textSelection(.enabled)
                 .font(.callout)
             HStack {

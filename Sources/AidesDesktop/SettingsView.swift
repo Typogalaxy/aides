@@ -1,3 +1,4 @@
+import AidesCore
 import SwiftUI
 
 struct SettingsView: View {
@@ -97,12 +98,12 @@ private struct AddModelSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @ViewState private var name = ""
-    @ViewState private var kind = ModelKind.ollama
-    @ViewState private var endpoint = ModelKind.ollama.suggestedEndpoint
+    @ViewState private var kind = ProviderKind.ollama
+    @ViewState private var endpoint = ProviderKind.ollama.suggestedEndpoint
     @ViewState private var model = ""
     @ViewState private var key = ""
 
-    private var providers: [ModelKind] {
+    private var providers: [ProviderKind] {
         [.ollama, .openAI, .claude, .codex, .claudeCode, .mock]
     }
 
@@ -112,7 +113,7 @@ private struct AddModelSheet: View {
             Form {
                 TextField("Display name", text: $name)
                 Picker("Provider", selection: $kind) {
-                    ForEach(providers) { provider in Text(provider.label).tag(provider) }
+                    ForEach(providers, id: \.self) { provider in Text(provider.label).tag(provider) }
                 }
                 if kind != .mock {
                     TextField(kind == .codex || kind == .claudeCode ? "Executable on server" : "Endpoint", text: $endpoint)
@@ -125,7 +126,7 @@ private struct AddModelSheet: View {
                 } else if kind != .mock {
                     TextField("Model identifier", text: $model)
                 }
-                if kind.usesAPIKey {
+                if kind.needsAPIKey {
                     SecureField("API key", text: $key)
                 }
             }
@@ -138,7 +139,7 @@ private struct AddModelSheet: View {
                         let saved = await workspace.addModel(ModelRequest(
                             name: name.trimmed, kind: kind.rawValue, endpoint: endpoint.trimmed,
                             model: kind == .mock ? "mock" : identifier,
-                            apiKey: kind.usesAPIKey && !key.trimmed.isEmpty ? key.trimmed : nil
+                            apiKey: kind.needsAPIKey && !key.trimmed.isEmpty ? key.trimmed : nil
                         ))
                         if saved {
                             key = ""
@@ -164,7 +165,7 @@ private struct AddModelSheet: View {
         switch kind {
         case .mock: true
         case .codex, .claudeCode: !endpoint.trimmed.isEmpty
-        default: !endpoint.trimmed.isEmpty && !model.trimmed.isEmpty && (!kind.usesAPIKey || !key.trimmed.isEmpty)
+        default: !endpoint.trimmed.isEmpty && !model.trimmed.isEmpty && (!kind.needsAPIKey || !key.trimmed.isEmpty)
         }
     }
 }
@@ -242,7 +243,7 @@ private struct MemorySettingsView: View {
                             Button("Delete", role: .destructive) { deleting = record }
                         }
                         Text(record.value).textSelection(.enabled)
-                        Text("\(scopeName(record.scope)) · \(record.sensitivity == "localOnly" ? "Local only" : "Cloud eligible") · \(record.updatedAt.formatted(date: .abbreviated, time: .omitted))")
+                        Text("\(scopeName(record.scope)) · \(record.sensitivity == .localOnly ? "Local only" : "Cloud eligible") · \(record.updatedAt.formatted(date: .abbreviated, time: .omitted))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -303,7 +304,7 @@ private struct MemoryEditor: View {
                     ForEach(workspace.state.projects) { project in
                         Text(project.name).tag("project:\(project.id.uuidString.lowercased())")
                     }
-                    ForEach(workspace.state.threads.filter { $0.role == "area" }) { area in
+                    ForEach(workspace.state.threads.filter { $0.role == .area }) { area in
                         Text(area.title).tag("area:\(area.id.uuidString.lowercased())")
                     }
                 }
@@ -335,7 +336,7 @@ private struct MemoryEditor: View {
                 key = existing.key
                 value = existing.value
                 scope = existing.scope
-                sensitivity = existing.sensitivity
+                sensitivity = existing.sensitivity.rawValue
             }
         }
     }
@@ -366,7 +367,7 @@ private struct ApplicationSettingsView: View {
 }
 
 struct ActivityView: View {
-    let state: DesktopState
+    let state: AppState
 
     var body: some View {
         ScrollView {
@@ -378,15 +379,13 @@ struct ActivityView: View {
                     metric("Output tokens", value: state.metrics.outputTokens.formatted(), icon: "text.alignleft")
                     metric("Storage", value: bytes(state.metrics.storageBytes), icon: "internaldrive")
                     metric("Network", value: bytes(state.metrics.networkBytes), icon: "network")
-                    if let memory = state.metrics.memoryBytes {
-                        metric("Server memory", value: bytes(memory), icon: "memorychip")
-                    }
+                    metric("Server memory", value: bytes(state.metrics.processMemoryBytes), icon: "memorychip")
                 }
                 Divider()
                 Text("Worker runs").font(.headline)
                 LabeledContent("Active", value: state.tasks.filter { !$0.isFinished }.count.formatted())
-                LabeledContent("Completed", value: state.tasks.filter { $0.status == "completed" }.count.formatted())
-                LabeledContent("Failed", value: state.tasks.filter { $0.status == "failed" }.count.formatted())
+                LabeledContent("Completed", value: state.tasks.filter { $0.status == .completed }.count.formatted())
+                LabeledContent("Failed", value: state.tasks.filter { $0.status == .failed }.count.formatted())
             }
             .padding(24)
             .frame(maxWidth: 880, alignment: .leading)

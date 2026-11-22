@@ -1,3 +1,4 @@
+import AidesCore
 import SwiftUI
 
 struct ProjectsView: View {

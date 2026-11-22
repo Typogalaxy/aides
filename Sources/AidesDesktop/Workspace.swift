@@ -1,10 +1,11 @@
+import AidesCore
 import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class Workspace {
-    var state = DesktopState()
+    var state = AppState()
     var memories: [MemoryRecord] = []
     var address = ServerEndpoint.localAddress
     var deviceName = Host.current().localizedName ?? "Mac"
@@ -92,7 +93,7 @@ final class Workspace {
             try CredentialStore.save(credential, for: endpoint)
         } catch {
             let authenticated = ServerClient(endpoint: endpoint, credential: credential)
-            let _: DesktopState? = try? await authenticated.delete(["devices", credential.deviceID.uuidString])
+            let _: AppState? = try? await authenticated.delete(["devices", credential.deviceID.uuidString])
             throw error
         }
         try await connect(endpoint, credential: credential)
@@ -101,7 +102,7 @@ final class Workspace {
 
     private func connect(_ endpoint: ServerEndpoint, credential: AccountCredential) async throws {
         let service = ServerClient(endpoint: endpoint, credential: credential)
-        let initial: DesktopState = try await service.get(["state"])
+        let initial: AppState = try await service.get(["state"])
         eventTask?.cancel()
         state = initial
         memories = []
@@ -119,7 +120,7 @@ final class Workspace {
         eventTask = nil
         client = nil
         deviceID = nil
-        state = DesktopState()
+        state = AppState()
         memories = []
         newInvite = nil
         isConnected = false
@@ -140,7 +141,7 @@ final class Workspace {
             while !Task.isCancelled {
                 guard let revision = self?.state.revision else { return }
                 do {
-                    let next: DesktopState
+                    let next: AppState
                     if usesEventStream {
                         next = try await service.get(
                             ["events"], query: [URLQueryItem(name: "after", value: String(revision))]
@@ -170,7 +171,7 @@ final class Workspace {
         }
     }
 
-    private func apply(_ newState: DesktopState) {
+    private func apply(_ newState: AppState) {
         if newState.revision >= state.revision { state = newState }
     }
 
@@ -192,7 +193,7 @@ final class Workspace {
     }
 
     private func update<Body: Encodable & Sendable>(_ route: [String], _ body: Body) async throws {
-        let newState: DesktopState = try await authenticated().post(route, body: body)
+        let newState: AppState = try await authenticated().post(route, body: body)
         apply(newState)
     }
 
@@ -201,7 +202,7 @@ final class Workspace {
         await perform {
             let known = Set(state.threads.map(\.id))
             try await update(["threads"], ThreadRequest(title: title, role: role, projectID: projectID))
-            created = state.threads.last { $0.title == title && $0.role == role && !known.contains($0.id) }?.id
+            created = state.threads.last { $0.title == title && $0.role.rawValue == role && !known.contains($0.id) }?.id
         }
         return created
     }
@@ -249,7 +250,7 @@ final class Workspace {
         await perform {
             let known = Set(state.tasks.map(\.id))
             try await update(["reviews"], request)
-            created = state.tasks.last { $0.kind == "review" && $0.title == request.title && !known.contains($0.id) }?.id
+            created = state.tasks.last { $0.kind == .review && $0.title == request.title && !known.contains($0.id) }?.id
         }
         return created
     }
@@ -316,7 +317,7 @@ final class Workspace {
         await perform {
             let wasCurrent = id == deviceID
             let currentEndpoint = try ServerEndpoint(address)
-            let result: DesktopState = try await authenticated().delete(["devices", id.uuidString])
+            let result: AppState = try await authenticated().delete(["devices", id.uuidString])
             if wasCurrent {
                 disconnect()
                 try CredentialStore.delete(for: currentEndpoint)

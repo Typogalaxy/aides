@@ -1,3 +1,4 @@
+import AidesCore
 import SwiftUI
 
 struct WorkersView: View {
@@ -9,7 +10,7 @@ struct WorkersView: View {
     @ViewState private var showsSchedule = false
     @ViewState private var filter = WorkerFilter.active
 
-    private var shownTasks: [WorkerTask] {
+    private var shownTasks: [WorkItem] {
         workspace.state.tasks.reversed().filter { task in
             switch filter {
             case .active: !task.isFinished
@@ -114,11 +115,11 @@ struct WorkersView: View {
         }
     }
 
-    private func scheduleDetail(_ schedule: WorkSchedule) -> String {
-        let action = schedule.kind == "reminder" ? "Reminder" : "Analysis"
-        if schedule.paused { return "\(action) · \(schedule.repeatRule.capitalized) · Paused" }
+    private func scheduleDetail(_ schedule: AidesCore.WorkSchedule) -> String {
+        let action = schedule.kind == .reminder ? "Reminder" : "Analysis"
+        if schedule.paused { return "\(action) · \(schedule.repeatRule.rawValue.capitalized) · Paused" }
         if let date = schedule.nextRun {
-            return "\(action) · \(schedule.repeatRule.capitalized) · \(date.formatted(date: .abbreviated, time: .shortened))"
+            return "\(action) · \(schedule.repeatRule.rawValue.capitalized) · \(date.formatted(date: .abbreviated, time: .shortened))"
         }
         return "\(action) · Complete"
     }
@@ -131,15 +132,15 @@ private enum WorkerFilter: String, CaseIterable {
 }
 
 struct TaskStatusView: View {
-    let task: WorkerTask
+    let task: WorkItem
     var showsLabel = true
 
     private var statusColor: Color {
         switch task.status {
-        case "completed": .green
-        case "failed": .red
-        case "waitingApproval", "waiting": .orange
-        case "running": .aidesAccent
+        case .completed: .green
+        case .failed: .red
+        case .waitingApproval, .waiting: .orange
+        case .running: .aidesAccent
         default: .secondary
         }
     }
@@ -160,7 +161,7 @@ struct TaskStatusView: View {
 
 struct WorkerInspector: View {
     let workspace: Workspace
-    let task: WorkerTask
+    let task: WorkItem
     let close: () -> Void
 
     var body: some View {
@@ -188,9 +189,9 @@ struct WorkerInspector: View {
                         LabeledContent("Scheduled", value: scheduledAt.formatted(date: .abbreviated, time: .shortened))
                     }
                     LabeledContent("Updated", value: task.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    if task.kind == "review" {
+                    if task.kind == .review {
                         ReviewDetails(workspace: workspace, review: task)
-                    } else if task.status == "waitingApproval" {
+                    } else if task.status == .waitingApproval {
                         ApprovalDetails(workspace: workspace, task: task)
                     }
                     if let message = task.error {
@@ -205,7 +206,7 @@ struct WorkerInspector: View {
                             .font(.callout)
                             .textSelection(.enabled)
                     }
-                    if task.status == "waiting" && task.kind != "review" {
+                    if task.status == .waiting && task.kind != .review {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
                             .disabled(workspace.isWorking)
                     }
@@ -303,7 +304,7 @@ struct NewScheduleSheet: View {
                 TextField("Repeat time zone", text: $timeZone, prompt: Text(TimeZone.current.identifier))
                 Picker("Conversation", selection: $threadID) {
                     Text("Secretary").tag(UUID?.none)
-                    ForEach(workspace.state.threads.filter { $0.role != "secretary" && $0.archivedAt == nil }) { thread in
+                    ForEach(workspace.state.threads.filter { $0.role != .secretary && $0.archivedAt == nil }) { thread in
                         Text(thread.title).tag(Optional(thread.id))
                     }
                 }
@@ -338,7 +339,7 @@ struct NewScheduleSheet: View {
 }
 
 struct ModelPicker: View {
-    let models: [ModelConfiguration]
+    let models: [ModelProfile]
     @Binding var selection: UUID?
 
     var body: some View {
