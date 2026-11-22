@@ -244,6 +244,29 @@ final class Workspace {
         return created
     }
 
+    func createReview(_ request: ReviewRequest) async -> UUID? {
+        var created: UUID?
+        await perform {
+            let known = Set(state.tasks.map(\.id))
+            try await update(["reviews"], request)
+            created = state.tasks.last { $0.kind == "review" && $0.title == request.title && !known.contains($0.id) }?.id
+        }
+        return created
+    }
+
+    func clarifyReview(_ id: UUID, clarification: String) async -> Bool {
+        var sent = false
+        await perform {
+            try await update(["reviews", id.uuidString, "clarify"], ReviewClarification(clarification: clarification))
+            sent = true
+        }
+        return sent
+    }
+
+    func finishReview(_ id: UUID) async {
+        await perform { try await update(["reviews", id.uuidString, "finish"], EmptyRequest()) }
+    }
+
     func createSchedule(_ request: ScheduleRequest) async -> Bool {
         var created = false
         await perform {
@@ -341,6 +364,16 @@ struct TaskRequest: Encodable {
     let modelID: UUID?
     let scheduledAt: Date?
 }
+
+struct ReviewRequest: Encodable {
+    let title: String
+    let instruction: String
+    let modelIDs: [UUID]
+    let threadID: UUID?
+    let projectID: UUID?
+}
+
+private struct ReviewClarification: Encodable { let clarification: String }
 
 struct ScheduleRequest: Encodable {
     let title: String

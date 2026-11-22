@@ -7,6 +7,7 @@ struct ChatView: View {
     let showWorker: (UUID) -> Void
 
     @ViewState private var showsTask = false
+    @ViewState private var showsReview = false
     @ViewState private var showsArchive = false
 
     private var tasks: [WorkerTask] {
@@ -22,6 +23,8 @@ struct ChatView: View {
                 }
                 Spacer()
                 if conversation.archivedAt == nil {
+                    Button("Review task…") { showsReview = true }
+                        .disabled(workspace.state.models.count < 2)
                     Button {
                         showsTask = true
                     } label: {
@@ -85,6 +88,11 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showsTask) {
             NewTaskSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {
+                showWorker($0)
+            }
+        }
+        .sheet(isPresented: $showsReview) {
+            NewReviewSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {
                 showWorker($0)
             }
         }

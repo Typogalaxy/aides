@@ -51,6 +51,8 @@ struct WorkerTask: Decodable, Identifiable, Sendable {
     let id: UUID
     let title: String
     let instruction: String?
+    let kind: String
+    let parentID: UUID?
     let threadID: UUID?
     let projectID: UUID?
     let modelID: UUID?

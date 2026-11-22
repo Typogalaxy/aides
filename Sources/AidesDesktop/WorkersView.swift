@@ -5,6 +5,7 @@ struct WorkersView: View {
     let inspect: (UUID) -> Void
 
     @ViewState private var showsTask = false
+    @ViewState private var showsReview = false
     @ViewState private var showsSchedule = false
     @ViewState private var filter = WorkerFilter.active
 
@@ -23,6 +24,8 @@ struct WorkersView: View {
             HStack {
                 PageHeading("Workers", description: "Follow runs, review requests and manage scheduled work.")
                 Button("New schedule") { showsSchedule = true }
+                Button("Review task…") { showsReview = true }
+                    .disabled(workspace.state.models.count < 2)
                 Button {
                     showsTask = true
                 } label: {
@@ -71,6 +74,12 @@ struct WorkersView: View {
         }
         .sheet(isPresented: $showsTask) {
             NewTaskSheet(workspace: workspace) { id in
+                filter = .active
+                inspect(id)
+            }
+        }
+        .sheet(isPresented: $showsReview) {
+            NewReviewSheet(workspace: workspace) { id in
                 filter = .active
                 inspect(id)
             }
@@ -179,22 +188,10 @@ struct WorkerInspector: View {
                         LabeledContent("Scheduled", value: scheduledAt.formatted(date: .abbreviated, time: .shortened))
                     }
                     LabeledContent("Updated", value: task.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    if task.status == "waitingApproval" {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Approval requested").font(.headline)
-                            Text("This run uses a cloud provider. The task instructions will be shared with that provider.")
-                                .font(.callout).foregroundStyle(.secondary)
-                            if let instruction = task.instruction, !instruction.trimmed.isEmpty {
-                                Text(instruction).textSelection(.enabled)
-                                    .font(.callout)
-                            }
-                            HStack {
-                                Button("Deny") { Task { await workspace.approve(task.id, approved: false) } }
-                                Button("Allow run") { Task { await workspace.approve(task.id, approved: true) } }
-                                    .buttonStyle(.borderedProminent)
-                            }
-                            .disabled(workspace.isWorking)
-                        }
+                    if task.kind == "review" {
+                        ReviewDetails(workspace: workspace, review: task)
+                    } else if task.status == "waitingApproval" {
+                        ApprovalDetails(workspace: workspace, task: task)
                     }
                     if let message = task.error {
                         Label("Run details", systemImage: "exclamationmark.triangle").font(.headline)
@@ -208,7 +205,7 @@ struct WorkerInspector: View {
                             .font(.callout)
                             .textSelection(.enabled)
                     }
-                    if task.status == "waiting" {
+                    if task.status == "waiting" && task.kind != "review" {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
                             .disabled(workspace.isWorking)
                     }
