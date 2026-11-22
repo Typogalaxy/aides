@@ -384,7 +384,7 @@ private struct AppearanceSettingsView: View {
     @AppStorage("aides.appearance") private var appearance = DesktopAppearance.system
     @AppStorage(DesktopTypography.uiKey) private var uiSize = DesktopTypography.defaultUISize
     @AppStorage(DesktopTypography.codeKey) private var codeSize = DesktopTypography.defaultCodeSize
-    @AppStorage(DesktopTypography.replyKey) private var replySize = DesktopTypography.defaultReplySize
+    @AppStorage(DesktopTypography.contentKey) private var contentSize = DesktopTypography.defaultContentSize
 
     var body: some View {
         Form {
@@ -397,17 +397,17 @@ private struct AppearanceSettingsView: View {
             Section("Font sizes") {
                 fontSize("Interface", value: $uiSize, in: DesktopTypography.uiRange)
                 fontSize("Code", value: $codeSize, in: DesktopTypography.codeRange)
-                fontSize("Reply text", value: $replySize, in: DesktopTypography.replyRange)
+                fontSize("Content", value: $contentSize, in: DesktopTypography.contentRange)
 
                 Button("Reset font sizes") {
                     uiSize = DesktopTypography.defaultUISize
                     codeSize = DesktopTypography.defaultCodeSize
-                    replySize = DesktopTypography.defaultReplySize
+                    contentSize = DesktopTypography.defaultContentSize
                 }
                 .disabled(
                     uiSize == DesktopTypography.defaultUISize &&
                     codeSize == DesktopTypography.defaultCodeSize &&
-                    replySize == DesktopTypography.defaultReplySize
+                    contentSize == DesktopTypography.defaultContentSize
                 )
             }
         }

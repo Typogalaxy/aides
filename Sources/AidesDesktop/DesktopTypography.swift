@@ -3,24 +3,25 @@ import SwiftUI
 struct DesktopTypography: Equatable, Sendable {
     static let uiKey = "aides.fontSize.interface"
     static let codeKey = "aides.fontSize.code"
-    static let replyKey = "aides.fontSize.reply"
+    // Keep the on-disk key so existing font preferences survive the expanded setting.
+    static let contentKey = "aides.fontSize.reply"
 
     static let defaultUISize = 13
     static let defaultCodeSize = 13
-    static let defaultReplySize = 16
+    static let defaultContentSize = 16
 
     static let uiRange = 11...20
     static let codeRange = 10...26
-    static let replyRange = 11...28
+    static let contentRange = 11...28
 
     let uiSize: CGFloat
     let codeSize: CGFloat
-    let replySize: CGFloat
+    let contentSize: CGFloat
 
-    init(ui: Int = defaultUISize, code: Int = defaultCodeSize, reply: Int = defaultReplySize) {
+    init(ui: Int = defaultUISize, code: Int = defaultCodeSize, content: Int = defaultContentSize) {
         uiSize = CGFloat(min(max(ui, Self.uiRange.lowerBound), Self.uiRange.upperBound))
         codeSize = CGFloat(min(max(code, Self.codeRange.lowerBound), Self.codeRange.upperBound))
-        replySize = CGFloat(min(max(reply, Self.replyRange.lowerBound), Self.replyRange.upperBound))
+        contentSize = CGFloat(min(max(content, Self.contentRange.lowerBound), Self.contentRange.upperBound))
     }
 
     enum UIStyle {

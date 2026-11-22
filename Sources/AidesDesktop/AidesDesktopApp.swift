@@ -10,10 +10,10 @@ struct AidesDesktopApp: App {
     @AppStorage("aides.appearance") private var appearance = DesktopAppearance.system
     @AppStorage(DesktopTypography.uiKey) private var uiSize = DesktopTypography.defaultUISize
     @AppStorage(DesktopTypography.codeKey) private var codeSize = DesktopTypography.defaultCodeSize
-    @AppStorage(DesktopTypography.replyKey) private var replySize = DesktopTypography.defaultReplySize
+    @AppStorage(DesktopTypography.contentKey) private var contentSize = DesktopTypography.defaultContentSize
 
     private var typography: DesktopTypography {
-        DesktopTypography(ui: uiSize, code: codeSize, reply: replySize)
+        DesktopTypography(ui: uiSize, code: codeSize, content: contentSize)
     }
 
     var body: some Scene {

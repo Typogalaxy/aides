@@ -275,11 +275,12 @@ struct ChatView: View {
                     Text(error).desktopUIFont(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 let prompt = "Message \(conversation.title)…"
-                ChatComposerInput(text: $draft, placeholder: prompt, fontSize: typography.uiSize, send: sendDraft)
+                ChatComposerInput(text: $draft, placeholder: prompt, fontSize: typography.contentSize, send: sendDraft)
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
                             Text(prompt)
-                                .foregroundStyle(.placeholder)
+                                .font(.system(size: typography.contentSize))
+                                .foregroundStyle(Color(nsColor: .placeholderTextColor))
                                 .allowsHitTesting(false)
                                 .accessibilityHidden(true)
                         }
@@ -368,7 +369,7 @@ private struct ChatMessageView: View {
                 HStack(alignment: .top, spacing: 0) {
                     Spacer(minLength: 38)
                     Text(message.text)
-                        .font(.system(size: typography.uiSize + 3))
+                        .font(.system(size: typography.contentSize))
                         .lineSpacing(5)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
@@ -382,7 +383,7 @@ private struct ChatMessageView: View {
                         .frame(maxWidth: 514, alignment: .trailing)
                 }
             } else if message.role == .assistant {
-                ChatMarkdownView(source: message.text, bodySize: typography.replySize, codeSize: typography.codeSize)
+                ChatMarkdownView(source: message.text, bodySize: typography.contentSize, codeSize: typography.codeSize)
             } else {
                 Text(message.text)
                     .desktopUIFont(.body)
