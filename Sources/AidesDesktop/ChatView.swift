@@ -321,6 +321,8 @@ private struct ChatMessageView: View {
                         )
                         .frame(maxWidth: 514, alignment: .trailing)
                 }
+            } else if message.role == .assistant {
+                ChatMarkdownView(source: message.text, bodySize: 16, codeSize: 13)
             } else {
                 Text(message.text)
                     .font(.system(size: 16))
