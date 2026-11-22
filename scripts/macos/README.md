@@ -1,10 +1,17 @@
 # macOS packaging
 
 Run `scripts/macos/package.sh` from a macOS checkout to build an ad-hoc-signed
-development disk image in `dist/`. Pull request builds upload the same kind of
-disk image as a GitHub Actions artifact. The development build excludes the
-automatic update feed. Install the app by dragging Aides into Applications
-before starting its server.
+development disk image in `dist/`. Pull request builds upload the same kind of disk image
+as a GitHub Actions artifact. Install the app by dragging Aides into
+Applications before starting its server.
+
+Aides builds without a Sparkle feed check the latest stable GitHub Release in
+`Typogalaxy/aides` at startup and every six hours. Publish a higher three-part
+version tag and attach a matching `Aides-<version>-<architecture>.dmg` or
+`Aides-<version>-<architecture>-development.dmg`. When Aides detects an update,
+its sidebar button opens the Release page for downloading and installing the
+DMG. **Settings → Application** also offers a manual check. This works with
+ad-hoc-signed DMGs and requires no appcast or Developer ID.
 
 The app includes `AidesServer` and a per-user launch agent helper. The helper's
 commands are `start`, `stop`, `status`, and `invite`. The running background
