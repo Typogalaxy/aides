@@ -54,12 +54,20 @@ one-time invite on the host or from the Devices settings of an already paired
 client. Enter the private HTTPS address and code on the other Mac. See the
 [private networking example](../scripts/macos/README.md).
 
-Under Settings → Devices, share an exact folder from the Mac that owns the
-files. The server keeps a label and permission; the folder path stays with the
-client. The target desktop must be running and connected to claim a request.
-For moves, the target Mac asks for approval and preserves an existing
-destination. A disconnect after dispatch can leave an unknown outcome.
-Reconcile it on the target device before issuing another move.
+## Use the file Toolkit
+
+On the Mac that owns the files, open Settings → Toolkit and share the specific
+folder. Other paired Macs can request directory listings and text reads. To
+allow move requests, enable them when sharing the folder. The server keeps the
+folder label, device and permissions. The absolute folder path stays on the
+target Mac.
+
+Request a file action from the same Toolkit settings pane. The target desktop
+must be running and connected to claim it. Moves require confirmation on that
+Mac and cannot overwrite an existing destination. Paired Macs can inspect the
+request status and result in Toolkit settings. If the server restarts or loses
+contact while a request is running, check the target Mac before requesting the
+action again.
 
 ## Build and verify
 
