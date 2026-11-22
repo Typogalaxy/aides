@@ -28,6 +28,14 @@ jobs:
           plutil -lint scripts/macos/Info.plist
       - name: Run package tests
         run: swift test
+      - name: Smoke-test the server with isolated local fixtures
+        run: |
+          swift build --product AidesServer
+          binary="$(swift build --show-bin-path)/AidesServer"
+          smoke_dir="$(mktemp -d "${RUNNER_TEMP}/aides-server-smoke.XXXXXX")"
+          install -m 0755 "$binary" "$smoke_dir/AidesServer"
+          codesign --force --sign - "$smoke_dir/AidesServer"
+          python3 -u scripts/test-server.py "$smoke_dir/AidesServer"
       - name: Build development DMG, including the updater
         env:
           AIDES_ENABLE_SPARKLE: '1'
