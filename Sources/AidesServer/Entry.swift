@@ -30,7 +30,13 @@ struct Entry {
             configureRoutes(app, service: service)
             let scheduler = Task { await service.start() }
             defer { scheduler.cancel() }
-            try await app.execute()
+            do {
+                try await app.execute()
+            } catch {
+                await service.commands.shutdown()
+                throw error
+            }
+            await service.commands.shutdown()
         } catch {
             try? await app.asyncShutdown()
             throw error

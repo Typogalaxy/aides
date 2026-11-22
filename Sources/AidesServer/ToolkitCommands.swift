@@ -117,6 +117,12 @@ actor ToolkitCommandJobs {
         return run
     }
 
+    func shutdown() async {
+        guard let task = running?.task else { return }
+        task.cancel()
+        await task.value
+    }
+
     private func execute(_ id: UUID, profile: ToolkitCommandProfile, directory: URL) async {
         defer { if running?.id == id { running = nil } }
         let status: ToolkitInvocationStatus
