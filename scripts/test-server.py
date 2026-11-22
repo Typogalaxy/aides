@@ -125,8 +125,9 @@ class IsolatedServer:
     def invite(self):
         result = subprocess.run(
             [str(self.binary), "invite"], env=self.environment, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, timeout=10,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
         )
+        require(result.returncode == 0, f"Server invite command exited with status {result.returncode}")
         code = result.stdout.strip()
         require(re.fullmatch(r"[a-f0-9]{64}", code), "Server CLI did not issue an invitation")
         return code
@@ -200,9 +201,25 @@ def exercise(server, mock_ollama):
     guest = anonymous.post("/pair", {"code": guest_invite, "name": "Smoke guest"})
     guest_client = Client(server.port, guest["token"])
     guest_client.request("GET", "/state")
+    grant = guest_client.post("/device-files/grants", {"name": "Read-only smoke folder", "allowMoves": False})
+    read = {"grantID": grant["id"], "operation": "read", "path": "Readme.txt"}
+    client.post("/device-files/jobs", {**read, "path": "../Outside.txt"}, status=400)
+    client.post("/device-files/jobs", {**read, "operation": "move", "destination": "Renamed.txt"}, status=403)
+    job = client.post("/device-files/jobs", read)
+    require(client.post("/device-files/jobs/next", {}).get("job") is None, "Wrong device claimed a file operation")
+    claimed = guest_client.post("/device-files/jobs/next", {})["job"]
+    require(claimed["id"] == job["id"] and claimed["status"] == "running", "Target device could not claim its job")
+    finish = f'/device-files/jobs/{job["id"]}/finish'
+    client.post(finish, {"result": "Untrusted receipt"}, status=404)
+    receipt = guest_client.post(finish, {"result": "Synthetic text fixture"})
+    require(receipt["status"] == "completed", "Target device did not complete its file job")
+    queued = client.post("/device-files/jobs", read)
     client.request("DELETE", "/devices/" + guest["deviceID"])
+    revoked_files = client.request("GET", "/device-files")
+    require(find(revoked_files["grants"], id=grant["id"]) is None, "Device revocation left a folder grant active")
+    require(find(revoked_files["jobs"], id=queued["id"])["status"] == "cancelled", "Device revocation left a queued job active")
     guest_client.request("GET", "/state", status=401)
-    print("PASS device authentication, invitation consumption, and revocation")
+    print("PASS device authentication, isolated file claims, and grant revocation")
 
     state = client.post("/projects", {"name": "Fixture project"})
     project = find(state["projects"], name="Fixture project")
