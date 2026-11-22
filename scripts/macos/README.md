@@ -12,6 +12,23 @@ service owns its own lifecycle. Closing or updating the desktop app does not
 stop server tasks. After updating the host Mac, restart the background service
 once active work reaches a safe stopping point so it loads the new executable.
 
+## Optional cloud coding tools on the server Mac
+
+Sign in to your installed official tool using its own sign-in flow. If the
+background service is already running, stop it once active jobs are finished.
+Start it from Terminal with the executable paths you want it to use:
+
+```sh
+helper="/Applications/Aides.app/Contents/Resources/aides-service"
+AIDES_CODEX_PATH="$(command -v codex)" \
+  AIDES_CLAUDE_CODE_PATH="$(command -v claude)" "$helper" start
+```
+
+Omit either variable if you only use one tool. The paths come from the server
+Mac's environment and are stored in its per-user launch agent. Use the locally
+installed executables you trust. Login credentials remain under each official
+tool's control.
+
 ## Signed releases
 
 Configure a protected GitHub Actions environment named `macos-release`. It
