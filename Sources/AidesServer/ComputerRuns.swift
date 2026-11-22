@@ -36,6 +36,7 @@ struct NewComputerRun: Decodable, Sendable {
 struct ComputerPermission: Decodable, Sendable {
     let approved: Bool
     let allowRoutineActions: Bool?
+    let allowBackground: Bool?
 }
 
 struct ComputerDecision: Decodable, Sendable {
@@ -53,6 +54,7 @@ actor ComputerRuns {
     private let store: StateStore<ServerState>
     private var commands: [UUID: ComputerCommand] = [:]
     private var reviews: [UUID: ComputerReviewContext] = [:]
+    private var recentWindows: [UUID: [ComputerObservation]] = [:]
     private var planning: [UUID: (receiptID: UUID, task: Task<Void, Never>)] = [:]
 
     init(store: StateStore<ServerState>) {
@@ -119,9 +121,12 @@ actor ComputerRuns {
         let snapshot = await store.snapshot()
         let run = try Self.find(id, deviceID: deviceID, in: snapshot, targetOnly: true).run
         guard let first = run.appIDs.first else { throw Abort(.conflict) }
+        guard !input.approved || input.allowBackground != true || !run.includeImages else {
+            throw Abort(.badRequest, reason: "Background Computer Use requires a text-only observation grant.")
+        }
         let command = ComputerCommand(
             id: UUID(), runID: id, appIDs: run.appIDs, includeImages: run.includeImages,
-            action: ComputerAction(kind: .observe, appID: first)
+            action: ComputerAction(kind: .observe, appID: first), allowBackground: input.allowBackground == true
         )
         if input.approved { commands[command.id] = command }
         do {
@@ -137,6 +142,7 @@ actor ComputerRuns {
                     }
                     entry.approvedUntil = Date.now.addingTimeInterval(900)
                     entry.run.allowRoutineActions = input.allowRoutineActions == true
+                    entry.run.allowBackground = input.allowBackground == true
                     entry.run.pendingCommandID = command.id
                     entry.transition(.queued)
                 } else {
@@ -198,7 +204,9 @@ actor ComputerRuns {
                   entry.claimedAt != nil, (entry.approvedUntil ?? .distantPast) > .now,
                   let command, command.runID == id else { throw Abort(.conflict, reason: "The action is no longer active.") }
             if let observation = input.observation {
-                guard observation.isValid(allowImages: entry.run.includeImages, expectedAppID: command.action.appID) else {
+                guard observation.isValid(allowImages: entry.run.includeImages, expectedAppID: command.action.appID),
+                      observation.isBackground != true || entry.run.allowBackground == true,
+                      observation.screenshot == nil || entry.run.allowBackground != true else {
                     throw Abort(.badRequest, reason: "The observation exceeded its window or data scope.")
                 }
                 entry.run.steps.append(ComputerStep(
@@ -215,8 +223,17 @@ actor ComputerRuns {
         }
         clearCommand(input.commandID)
         if outcome.plan, let observation = input.observation {
+            var windows = recentWindows[id] ?? []
+            windows.removeAll { $0.appID == observation.appID }
+            windows.append(ComputerObservation(
+                appID: observation.appID, windowTitle: observation.windowTitle, elements: observation.elements,
+                isBackground: observation.isBackground
+            ))
+            recentWindows[id] = Array(windows.suffix(3))
             let receiptID = input.commandID
             planning[id] = (receiptID, Task { await plan(id, observation: observation, receiptID: receiptID) })
+        } else if !outcome.run.status.isActive {
+            recentWindows.removeValue(forKey: id)
         }
         return outcome.run
     }
@@ -238,7 +255,10 @@ actor ComputerRuns {
             state.computerRuns?[id] = entry
             return entry.run
         }
-        if !input.approved { clearCommand(input.actionID) }
+        if !input.approved {
+            clearCommand(input.actionID)
+            recentWindows.removeValue(forKey: id)
+        }
         return run
     }
 
@@ -261,6 +281,7 @@ actor ComputerRuns {
                     throw Abort(.conflict, reason: "This task exhausted its step budget. Create a new task to continue.")
                 }
                 entry.transition(.awaitingPermission)
+                entry.run.requiresFreshApproval = true
             case "stop":
                 entry.transition(.stopped, message: "Stopped by the user. Check any action already in progress.")
             default:
@@ -270,7 +291,10 @@ actor ComputerRuns {
             return (entry.run, pending)
         }
         if let pending = result.1 { clearCommand(pending) }
-        if verb != "resume" { planning.removeValue(forKey: id)?.task.cancel() }
+        if verb != "resume" {
+            planning.removeValue(forKey: id)?.task.cancel()
+            recentWindows.removeValue(forKey: id)
+        }
         return result.0
     }
 
@@ -280,7 +304,10 @@ actor ComputerRuns {
         }
         let snapshot = await store.snapshot()
         guard let entry = snapshot.computerRuns?[id],
-              Self.canContinue(entry, receiptID: receiptID, in: snapshot) else { return }
+              Self.canContinue(entry, receiptID: receiptID, in: snapshot) else {
+            if planning[id]?.receiptID == receiptID { recentWindows.removeValue(forKey: id) }
+            return
+        }
         guard entry.run.steps.count < Self.stepLimit else {
             await pausePlanning(id, receiptID: receiptID, message: "The Computer Use step budget was reached.")
             return
@@ -295,10 +322,13 @@ actor ComputerRuns {
                 endpoint: endpoint, model: model.model, instruction: entry.run.instruction,
                 apps: entry.run.appIDs.map { ComputerApp(id: $0, name: $0) },
                 observation: observation,
-                recent: entry.run.steps.suffix(8).map { "Step \($0.number) completed: \($0.kind.rawValue) in \($0.appID ?? "unknown app")." }
+                recent: entry.run.steps.suffix(8).map { "Step \($0.number) completed: \($0.kind.rawValue) in \($0.appID ?? "unknown app")." },
+                allowBackground: entry.run.allowBackground == true, priorWindows: recentWindows[id] ?? []
             )
             try Task.checkCancellation()
-            guard action.isValid(allowedAppIDs: entry.run.appIDs, observation: observation) else {
+            guard action.isValid(allowedAppIDs: entry.run.appIDs, observation: observation),
+                  entry.run.allowBackground != true || action.supportsBackground,
+                  action.x == nil || observation.screenshot != nil else {
                 await pausePlanning(id, receiptID: receiptID, message: "The model did not propose a supported action. Review the window.")
                 return
             }
@@ -314,7 +344,8 @@ actor ComputerRuns {
     ) async throws {
         let terminal = action.kind == .finish || action.kind == .handoff
         let command = ComputerCommand(
-            id: UUID(), runID: run.id, appIDs: run.appIDs, includeImages: run.includeImages, action: action
+            id: UUID(), runID: run.id, appIDs: run.appIDs, includeImages: run.includeImages,
+            action: action, allowBackground: run.allowBackground == true
         )
         if !terminal {
             commands[command.id] = command
@@ -350,6 +381,7 @@ actor ComputerRuns {
                 return true
             }
             if !retained { clearCommand(command.id) }
+            if retained && terminal { recentWindows.removeValue(forKey: run.id) }
         } catch {
             clearCommand(command.id)
             throw error
@@ -358,11 +390,13 @@ actor ComputerRuns {
 
     private func pausePlanning(_ id: UUID, receiptID: UUID, message: String) async {
         do {
-            try await store.update { state in
-                guard var entry = state.computerRuns?[id], Self.canContinue(entry, receiptID: receiptID, in: state) else { return }
+            let paused = try await store.update { state in
+                guard var entry = state.computerRuns?[id], Self.canContinue(entry, receiptID: receiptID, in: state) else { return false }
                 entry.transition(.paused, message: message)
                 state.computerRuns?[id] = entry
+                return true
             }
+            if paused { recentWindows.removeValue(forKey: id) }
         } catch {
             FileHandle.standardError.write(Data("Computer Use could not record a paused task.\n".utf8))
         }
@@ -383,12 +417,16 @@ actor ComputerRuns {
         planning.removeAll()
         commands.removeAll()
         reviews.removeAll()
+        recentWindows.removeAll()
     }
 
     func reconcileRevocation(of deviceID: UUID) async {
         let state = await store.snapshot()
         let ids = Set((state.computerRuns ?? [:]).values.lazy.filter { Self.canView($0.run, deviceID: deviceID) }.map(\.run.id))
-        for id in ids { planning.removeValue(forKey: id)?.task.cancel() }
+        for id in ids {
+            planning.removeValue(forKey: id)?.task.cancel()
+            recentWindows.removeValue(forKey: id)
+        }
         let discarded = commands.values.filter { ids.contains($0.runID) }.map(\.id)
         for id in discarded { clearCommand(id) }
     }
@@ -415,6 +453,7 @@ actor ComputerRuns {
         for (id, commandID) in expired {
             if let commandID { clearCommand(commandID) }
             planning.removeValue(forKey: id)?.task.cancel()
+            recentWindows.removeValue(forKey: id)
         }
     }
 

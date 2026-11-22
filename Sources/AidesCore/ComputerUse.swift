@@ -253,6 +253,7 @@ public struct ComputerRun: Codable, Identifiable, Sendable {
     public var pendingCommandID: UUID?
     public var allowRoutineActions: Bool?
     public var allowBackground: Bool?
+    public var requiresFreshApproval: Bool?
 
     public init(
         id: UUID, deviceID: UUID, requestedByDeviceID: UUID, appIDs: [String],
