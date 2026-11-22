@@ -11,13 +11,14 @@ private struct MailAccountConfiguration: Decodable, Sendable {
     let credentialEnvironment: String?
     let credentialFile: String?
     let allowSend: Bool?
+    let allowArchive: Bool?
 
     var defaultCredentialFile: String { "mail-\(id).token" }
 
     func account(available: Bool) -> ToolkitMailAccount {
         ToolkitMailAccount(
             id: id, provider: provider, label: label, address: address,
-            available: available, allowSend: allowSend == true
+            available: available, allowSend: allowSend == true, allowArchive: allowArchive == true
         )
     }
 
@@ -66,7 +67,11 @@ private struct MailAccountConfiguration: Decodable, Sendable {
     }
 }
 
-private struct MailAccountAccess: Sendable {
+enum MailAccessKind {
+    case read, send, archive
+}
+
+struct MailAccountAccess: Sendable {
     let account: ToolkitMailAccount
     let token: String
 }
@@ -146,7 +151,7 @@ extension AidesService {
             guard state.toolkitMailRetiredDraftIDs?.contains(input.id) != true else {
                 throw Abort(.gone, reason: "This mail receipt expired.")
             }
-            let account = try mailAccess(id: input.accountID, sending: true).account
+            let account = try mailAccess(id: input.accountID, kind: .send).account
             var drafts = state.toolkitMailDrafts ?? [:]
             let active = drafts.values.filter { $0.status == .awaitingConfirmation || $0.status == .sending }
             guard active.count < 24 else {
@@ -170,7 +175,7 @@ extension AidesService {
             let access: MailAccountAccess?
             if approved {
                 try Self.requireMailDevice(draft.requestedByDeviceID, in: state)
-                let configured = try mailAccess(id: draft.accountID, sending: true)
+                let configured = try mailAccess(id: draft.accountID, kind: .send)
                 guard configured.account.provider == draft.accountProvider,
                       configured.account.address == draft.accountAddress else {
                     throw Abort(.conflict, reason: "The sender changed. Create a new mail draft.")
@@ -260,12 +265,15 @@ extension AidesService {
         return accounts
     }
 
-    private func mailAccess(id: String, sending: Bool = false) throws -> MailAccountAccess {
+    func mailAccess(id: String, kind: MailAccessKind = .read) throws -> MailAccountAccess {
         guard let configured = try mailConfiguration().first(where: { $0.id == id }) else {
             throw Abort(.notFound, reason: "Mail account not found.")
         }
-        if sending && configured.allowSend != true {
+        if kind == .send && configured.allowSend != true {
             throw Abort(.forbidden, reason: "This mail account is read-only.")
+        }
+        if kind == .archive && configured.allowArchive != true {
+            throw Abort(.forbidden, reason: "Archiving is disabled for this mail account.")
         }
         guard let token = try? configured.token(in: mailStorage) else {
             throw Abort(.serviceUnavailable, reason: "Configure the protected mail account credential on the host.")
@@ -284,13 +292,13 @@ extension AidesService {
         }
     }
 
-    private static func requireMailDevice(_ deviceID: UUID, in state: ServerState) throws {
+    static func requireMailDevice(_ deviceID: UUID, in state: ServerState) throws {
         guard state.app.devices.contains(where: { $0.id == deviceID }) else {
             throw Abort(.unauthorized, reason: "Pair this device to continue.")
         }
     }
 
-    private static func mailFailure(_ error: Error) -> Abort {
+    static func mailFailure(_ error: Error) -> Abort {
         switch error as? ToolkitMailConnectorError {
         case .unauthorized, .wrongAccount:
             Abort(.forbidden, reason: "The provider did not authorize this account. Check its token and permissions.")
@@ -304,6 +312,7 @@ extension AidesService {
 
 func registerToolkitMailRoutes(_ group: RoutesBuilder, service: AidesService) {
     let mail = group.grouped("mail")
+    registerToolkitMailArchiveRoutes(mail, service: service)
     mail.get("accounts") { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.toolkitMailAccounts(deviceID: device))

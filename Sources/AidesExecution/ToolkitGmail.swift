@@ -44,8 +44,16 @@ extension ToolkitMailConnector {
             from: ToolkitRemoteTransport.bounded(message.payload?.header("From"), limit: 512),
             preview: ToolkitRemoteTransport.bounded(message.snippet, limit: 1_024),
             body: includeBody ? message.payload?.plainText().map { ToolkitRemoteTransport.bounded($0, limit: 24_000) } : nil,
-            receivedAt: message.internalDate.flatMap(Int64.init).map { Date(timeIntervalSince1970: Double($0) / 1_000) }
+            receivedAt: message.internalDate.flatMap(Int64.init).map { Date(timeIntervalSince1970: Double($0) / 1_000) },
+            attachments: includeBody ? Array(message.payload?.attachmentInfo().prefix(24) ?? []) : []
         )
+    }
+
+    func gmailArchive(token: String, id: String) async throws {
+        try await submit(request(
+            host: Self.gmailHost, path: Self.gmailMailbox + "/messages/" + id + "/modify", token: token,
+            body: json(["removeLabelIds": ["INBOX"]])
+        ))
     }
 
     func gmailSend(token: String, draft: ToolkitMailDraft) async throws {
@@ -107,7 +115,11 @@ private struct GmailMessage: Decodable {
             let value: String
         }
 
-        struct Body: Decodable { let data: String? }
+        struct Body: Decodable {
+            let data: String?
+            let size: Int?
+            let attachmentId: String?
+        }
 
         let mimeType: String?
         let filename: String?
@@ -119,9 +131,27 @@ private struct GmailMessage: Decodable {
             headers?.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
         }
 
+        func attachmentInfo(depth: Int = 0) -> [ToolkitMailAttachment] {
+            guard depth <= 8 else { return [] }
+            if let filename, !filename.isEmpty {
+                return [ToolkitMailAttachment(
+                    name: ToolkitRemoteTransport.bounded(filename, limit: 512),
+                    contentType: mimeType.map { ToolkitRemoteTransport.bounded($0, limit: 120) },
+                    byteCount: body?.size.flatMap { $0 >= 0 ? $0 : nil },
+                    isInline: header("Content-Disposition")?.lowercased().hasPrefix("inline") ?? false
+                )]
+            }
+            var output: [ToolkitMailAttachment] = []
+            for part in parts ?? [] {
+                output.append(contentsOf: part.attachmentInfo(depth: depth + 1).prefix(24 - output.count))
+                if output.count >= 24 { break }
+            }
+            return output
+        }
+
         func plainText(depth: Int = 0) -> String? {
             guard depth <= 8, filename?.isEmpty != false else { return nil }
-            if mimeType == "text/plain", let raw = body?.data {
+            if mimeType == "text/plain", body?.attachmentId == nil, let raw = body?.data {
                 var base64 = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
                 base64 += String(repeating: "=", count: (4 - base64.utf8.count % 4) % 4)
                 return Data(base64Encoded: base64).map { String(decoding: $0, as: UTF8.self) }

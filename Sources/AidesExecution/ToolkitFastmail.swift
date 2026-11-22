@@ -54,8 +54,8 @@ extension ToolkitMailConnector {
             session, token: token, call: "Email/get",
             parameters: [
                 "accountId": accountID, "ids": ids,
-                "properties": includeBody ? preview + ["textBody", "bodyValues"] : preview,
-                "bodyProperties": ["partId", "type"], "fetchTextBodyValues": includeBody, "maxBodyValueBytes": 24_000
+                "properties": includeBody ? preview + ["textBody", "bodyValues", "attachments"] : preview,
+                "bodyProperties": ["partId", "type", "name", "size", "disposition"], "fetchTextBodyValues": includeBody, "maxBodyValueBytes": 24_000
             ]
         )
         guard let values = result["list"] as? [[String: Any]] else {
@@ -69,8 +69,41 @@ extension ToolkitMailConnector {
                 id: identifier, subject: ToolkitRemoteTransport.bounded(message["subject"] as? String, limit: 512),
                 from: ToolkitRemoteTransport.bounded(name, limit: 512), preview: ToolkitRemoteTransport.bounded(message["preview"] as? String, limit: 1_024),
                 body: body.map { ToolkitRemoteTransport.bounded($0, limit: 24_000) },
-                receivedAt: ToolkitRemoteTransport.date(message["receivedAt"] as? String)
+                receivedAt: ToolkitRemoteTransport.date(message["receivedAt"] as? String),
+                attachments: includeBody ? fastmailAttachmentInfo(message) : []
             )
+        }
+    }
+
+    func fastmailArchive(_ session: FastmailSession, token: String, id: String) async throws {
+        let accountID = try fastmailAccountID(session)
+        let mailboxes = try await jmap(
+            session, token: token, call: "Mailbox/get", parameters: ["accountId": accountID, "properties": ["id", "role"]]
+        )
+        let folders = mailboxes["list"] as? [[String: Any]]
+        guard let inbox = folders?.first(where: { $0["role"] as? String == "inbox" })?["id"] as? String else {
+            throw ToolkitMailConnectorError.unexpectedResponse
+        }
+        let result = try await jmap(
+            session, token: token, call: "Email/get",
+            parameters: ["accountId": accountID, "ids": [id], "properties": ["id", "mailboxIds"]]
+        )
+        guard let item = (result["list"] as? [[String: Any]])?.first(where: { $0["id"] as? String == id }),
+              let mailboxIDs = item["mailboxIds"] as? [String: Bool],
+              let state = result["state"] as? String else { throw ToolkitMailConnectorError.rejected }
+        guard mailboxIDs[inbox] == true else { return }
+        var patch: [String: Any] = ["mailboxIds/" + inbox: NSNull()]
+        // Keep existing Fastmail labels. The Archive folder is needed if Inbox was the only location.
+        if !mailboxIDs.contains(where: { $0.key != inbox && $0.value }) {
+            guard let archive = folders?.first(where: { $0["role"] as? String == "archive" })?["id"] as? String,
+                  archive != inbox else { throw ToolkitMailConnectorError.unexpectedResponse }
+            patch["mailboxIds/" + archive] = true
+        }
+        let changed = try await jmap(
+            session, token: token, call: "Email/set", parameters: ["accountId": accountID, "ifInState": state, "update": [id: patch]]
+        )
+        guard let updated = changed["updated"] as? [String: Any], updated.keys.contains(id) else {
+            throw ToolkitMailConnectorError.rejected
         }
     }
 
@@ -126,6 +159,19 @@ extension ToolkitMailConnector {
             throw ToolkitMailConnectorError.unexpectedResponse
         }
         return id
+    }
+
+    private func fastmailAttachmentInfo(_ message: [String: Any]) -> [ToolkitMailAttachment] {
+        let parts = message["attachments"] as? [[String: Any]] ?? []
+        return parts.prefix(24).compactMap { part in
+            guard let name = part["name"] as? String, !name.isEmpty else { return nil }
+            return ToolkitMailAttachment(
+                name: ToolkitRemoteTransport.bounded(name, limit: 512),
+                contentType: (part["type"] as? String).map { ToolkitRemoteTransport.bounded($0, limit: 120) },
+                byteCount: (part["size"] as? Int).flatMap { $0 >= 0 ? $0 : nil },
+                isInline: (part["disposition"] as? String)?.lowercased() == "inline"
+            )
+        }
     }
 
     private func fastmailPlainText(_ message: [String: Any]) -> String? {

@@ -35,22 +35,21 @@ public struct ToolkitMailConnector: Sendable {
     }
 
     public func read(
-        account: ToolkitMailAccount, token: String, messageID: String
+        account: ToolkitMailAccount, token: String, messageID: String, includeBody: Bool = true
     ) async throws -> ToolkitMailMessage {
-        guard !messageID.isEmpty, messageID.utf8.count <= 512,
-              messageID.utf8.allSatisfy(Self.isOpaqueIdentifierByte) else {
+        guard isValidMessageID(messageID) else {
             throw ToolkitMailConnectorError.rejected
         }
         switch account.provider {
         case .gmail:
             try await checkGmailAccount(account, token: token)
-            return try await gmailMessage(token: token, id: messageID, includeBody: true)
+            return try await gmailMessage(token: token, id: messageID, includeBody: includeBody)
         case .outlook:
             try await checkOutlookAccount(account, token: token)
-            return try await outlookMessage(token: token, id: messageID)
+            return try await outlookMessage(token: token, id: messageID, includeBody: includeBody)
         case .fastmail:
             let session = try await fastmailSession(account, token: token)
-            guard let message = try await fastmailMessages(session, token: token, ids: [messageID], includeBody: true).first else {
+            guard let message = try await fastmailMessages(session, token: token, ids: [messageID], includeBody: includeBody).first else {
                 throw ToolkitMailConnectorError.rejected
             }
             return message
@@ -71,6 +70,25 @@ public struct ToolkitMailConnector: Sendable {
             let session = try await fastmailSession(account, token: token)
             try await fastmailSend(session, token: token, draft: draft)
         }
+    }
+
+    public func archive(account: ToolkitMailAccount, token: String, messageID: String) async throws {
+        guard isValidMessageID(messageID) else { throw ToolkitMailConnectorError.rejected }
+        switch account.provider {
+        case .gmail:
+            try await checkGmailAccount(account, token: token)
+            try await gmailArchive(token: token, id: messageID)
+        case .outlook:
+            try await checkOutlookAccount(account, token: token)
+            try await outlookArchive(token: token, id: messageID)
+        case .fastmail:
+            let session = try await fastmailSession(account, token: token)
+            try await fastmailArchive(session, token: token, id: messageID)
+        }
+    }
+
+    private func isValidMessageID(_ id: String) -> Bool {
+        !id.isEmpty && id.utf8.count <= 512 && id.utf8.allSatisfy(Self.isOpaqueIdentifierByte)
     }
 
     static func isOpaqueIdentifierByte(_ byte: UInt8) -> Bool {
