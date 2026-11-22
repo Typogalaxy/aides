@@ -22,16 +22,13 @@ enum DeviceFileOperation: String, Codable, Sendable {
     case list, read, move
 }
 
-enum DeviceFileStatus: String, Codable, Sendable {
-    case queued, running, completed, failed, cancelled, interrupted
-
-    var isActive: Bool { self == .queued || self == .running }
-}
+typealias DeviceFileStatus = ToolkitInvocationStatus
 
 struct DeviceFileJob: Codable, Identifiable, Sendable {
     let id: UUID
     let grantID: UUID
     let deviceID: UUID
+    let requestedByDeviceID: UUID?
     let grantName: String
     let operation: DeviceFileOperation
     let path: String
@@ -42,8 +39,12 @@ struct DeviceFileJob: Codable, Identifiable, Sendable {
     let createdAt: Date
     var updatedAt: Date
 
-    init(grant: DeviceFileGrant, operation: DeviceFileOperation, path: String, destination: String?, now: Date) {
-        id = UUID()
+    init(
+        id: UUID, grant: DeviceFileGrant, requestedByDeviceID: UUID?, operation: DeviceFileOperation,
+        path: String, destination: String?, now: Date
+    ) {
+        self.id = id
+        self.requestedByDeviceID = requestedByDeviceID
         grantID = grant.id
         deviceID = grant.deviceID
         grantName = grant.name
@@ -59,9 +60,14 @@ struct DeviceFileJob: Codable, Identifiable, Sendable {
 struct DeviceFileState: Codable, Sendable {
     var grants: [DeviceFileGrant] = []
     var jobs: [DeviceFileJob] = []
+    var retiredInvocationIDs: Set<UUID>?
 
     mutating func expireClaims(at now: Date) {
-        for index in jobs.indices where jobs[index].status == .running && now.timeIntervalSince(jobs[index].updatedAt) >= 120 {
+        interruptClaims(at: now) { now.timeIntervalSince($0.updatedAt) >= 120 }
+    }
+
+    mutating func interruptClaims(at now: Date, matching predicate: (DeviceFileJob) -> Bool = { _ in true }) {
+        for index in jobs.indices where jobs[index].status == .running && predicate(jobs[index]) {
             jobs[index].status = .interrupted
             jobs[index].error = "The device did not report the outcome. Check the target device before trying again."
             jobs[index].updatedAt = now
@@ -82,6 +88,11 @@ struct DeviceFileState: Codable, Sendable {
 
     mutating func trimHistory() {
         let recent = Set(jobs.reversed().lazy.filter { !$0.status.isActive }.prefix(32).map(\.id))
+        let pruned = jobs.lazy.filter { !$0.status.isActive && !recent.contains($0.id) }
+        let invocationIDs = pruned.filter { $0.requestedByDeviceID != nil }.map(\.id)
+        if !invocationIDs.isEmpty {
+            retiredInvocationIDs = (retiredInvocationIDs ?? []).union(invocationIDs)
+        }
         jobs.removeAll { !$0.status.isActive && !recent.contains($0.id) }
     }
 }
@@ -144,7 +155,9 @@ extension AidesService {
         }
     }
 
-    func createDeviceFileJob(_ input: NewDeviceFileJob, deviceID: UUID) async throws -> DeviceFileJob {
+    func createDeviceFileJob(
+        _ input: NewDeviceFileJob, deviceID: UUID, invocationID: UUID? = nil
+    ) async throws -> DeviceFileJob {
         let path = input.operation == .list && input.path == "." ? "" : input.path
         do {
             if input.operation != .list || !path.isEmpty { try ProjectFiles.validate(path: path) }
@@ -159,6 +172,18 @@ extension AidesService {
         }
 
         return try await updateDeviceFiles(for: deviceID) { files, now in
+            if let invocationID {
+                if let job = files.jobs.first(where: { $0.id == invocationID }) {
+                    guard job.requestedByDeviceID == deviceID, job.grantID == input.grantID,
+                          job.operation == input.operation, job.path == path, job.destination == input.destination else {
+                        throw Abort(.conflict, reason: "This invocation ID has already been used.")
+                    }
+                    return job
+                }
+                if files.retiredInvocationIDs?.contains(invocationID) == true {
+                    throw Abort(.gone, reason: "This invocation's history expired. The action was not repeated.")
+                }
+            }
             guard let grant = files.grants.first(where: { $0.id == input.grantID }) else {
                 throw Abort(.notFound, reason: "Folder grant is unavailable.")
             }
@@ -169,7 +194,8 @@ extension AidesService {
                 throw Abort(.conflict, reason: "The device file job queue is full.")
             }
             let job = DeviceFileJob(
-                grant: grant, operation: input.operation, path: path, destination: input.destination, now: now
+                id: invocationID ?? UUID(), grant: grant, requestedByDeviceID: invocationID == nil ? nil : deviceID,
+                operation: input.operation, path: path, destination: input.destination, now: now
             )
             files.jobs.append(job)
             return job

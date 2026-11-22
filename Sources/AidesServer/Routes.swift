@@ -118,6 +118,19 @@ func configureRoutes(_ app: Application, service: AidesService) {
         _ = try await service.authenticatedDevice(request)
         return try await json(service.closeReview(id(request)))
     }
+    let toolkit = api.grouped("toolkit")
+    toolkit.get("catalog") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.toolkitCatalog(deviceID: device))
+    }
+    toolkit.post("invocations") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.invokeToolkit(decode(ToolkitInvocationRequest.self, request), deviceID: device))
+    }
+    toolkit.get("invocations", ":id") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.toolkitInvocation(id(request), deviceID: device))
+    }
     api.get("device-files") { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.deviceFileManifest(deviceID: device))

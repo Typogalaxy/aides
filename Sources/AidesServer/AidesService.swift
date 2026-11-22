@@ -14,10 +14,15 @@ struct AidesService: Sendable {
         let store = try StateStore(directory: host.directory, defaultState: ServerState())
         self.store = store
         jobs = JobRunner(host: host, store: store)
-        if await store.snapshot().app.tasks.contains(where: { work in
+        let snapshot = await store.snapshot()
+        let recoveringTasks = snapshot.app.tasks.contains { work in
             work.status == .running || (work.kind == .retiredMail && !work.status.isTerminal)
-        }) {
+        }
+        let recoveringFileJobs = snapshot.deviceFiles?.jobs.contains { $0.status == .running } == true
+        if recoveringTasks || recoveringFileJobs {
             try await store.update { state in
+                state.deviceFiles?.interruptClaims(at: .now)
+                state.deviceFiles?.trimHistory()
                 for index in state.app.tasks.indices {
                     let work = state.app.tasks[index]
                     if work.kind == .retiredMail && !work.status.isTerminal {
