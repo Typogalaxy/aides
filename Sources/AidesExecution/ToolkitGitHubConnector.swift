@@ -57,7 +57,7 @@ public struct ToolkitGitHubConnector: Sendable {
             switch kind {
             case .issues, .pullRequests:
                 let records = try decoder.decode([GitHubDiscussion].self, from: data)
-                return records.lazy.filter { kind != .issues || $0.pullRequest == nil }.prefix(limit).map { record in
+                return try records.lazy.filter { kind != .issues || $0.pullRequest == nil }.prefix(limit).map { record in
                     try record.item(repository: repository, kind: kind)
                 }
             case .workflowRuns:

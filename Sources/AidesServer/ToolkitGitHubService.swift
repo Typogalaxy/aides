@@ -66,8 +66,9 @@ extension AidesService {
         guard token != nil || config.publicRead == true else {
             throw Abort(.serviceUnavailable, reason: "Configure the protected GitHub repository token on the host.")
         }
+        let result: [ToolkitGitHubItem]
         do {
-            return try await ToolkitGitHubConnector().items(
+            result = try await ToolkitGitHubConnector().items(
                 repository: config.repository(available: true), token: token, kind: request.kind, limit: limit
             )
         } catch ToolkitRemoteError.unauthorized {
@@ -75,6 +76,8 @@ extension AidesService {
         } catch {
             throw Abort(.badGateway, reason: "GitHub could not return the requested repository items.")
         }
+        try Self.requireGitHubDevice(deviceID, in: await store.snapshot())
+        return result
     }
 
     private var githubStorage: ToolkitHostConfiguration {
