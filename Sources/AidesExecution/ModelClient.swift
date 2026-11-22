@@ -21,7 +21,9 @@ public struct ModelClient: Sendable {
             stubResponse(request)
         case .ollama:
             try await generateOllama(request)
-        case .openAI, .anthropic:
+        case .openAI:
+            try await generateOpenAI(request)
+        case .anthropic:
             try await generateRemote(request)
         }
     }
