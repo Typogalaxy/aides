@@ -3,7 +3,7 @@ import Foundation
 import Vapor
 
 extension AidesService {
-    func createTask(_ input: NewTask) async throws -> AppState {
+    func createTask(_ input: NewTask, deviceID: UUID) async throws -> AppState {
         let title = try Self.required(input.title, max: 120)
         let instruction = try input.instruction.map { try Self.required($0, max: 20_000) }
         let kind = input.kind ?? .analysis
@@ -17,6 +17,12 @@ extension AidesService {
                 title: title, instruction: instruction, threadID: scope.threadID,
                 projectID: scope.projectID, profile: profile, kind: kind, scheduledAt: input.scheduledAt
             )
+            if input.toolkitResourceID != nil {
+                guard kind == .analysis, profile?.kind.isLocal == true else {
+                    throw Abort(.forbidden, reason: "Toolkit folder grants require a local analysis Worker.")
+                }
+                task.toolkitGrant = try Self.makeToolkitGrant(input.toolkitResourceID, deviceID: deviceID, in: state)
+            }
             let requestedIDs = input.sharedMemoryIDs ?? []
             if !requestedIDs.isEmpty {
                 let membership = scope.projectID.map { "project:\($0.uuidString.lowercased())" }

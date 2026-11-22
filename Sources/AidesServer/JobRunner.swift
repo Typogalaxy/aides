@@ -157,6 +157,10 @@ actor JobRunner {
             }
             messages = work.kind == .conversation && !history.isEmpty ? history : history + messages
         }
+        if model.kind.isLocal, let grant = work.toolkitGrant,
+           let folder = AidesService.activeToolkitFolder(for: grant, in: snapshot) {
+            system += "\n" + ToolkitSuggestions.instructions(for: folder)
+        }
         return try await client.generate(.init(
             provider: provider, endpoint: endpoint, model: model.model, apiKey: key,
             system: system, messages: messages, maxOutputTokens: codePrompt == nil ? 2_048 : 16_384
@@ -185,12 +189,24 @@ actor JobRunner {
                     state.app.metrics.outputTokens += output.outputTokens ?? 0
                     state.app.metrics.networkBytes += output.networkBytes
                 }
+                let threadRole = state.app.threads.first(where: { $0.id == work.threadID })?.role
+                let canSuggestSchedule = work.kind == .conversation && threadRole == .secretary
+                let folder = work.toolkitGrant.flatMap { AidesService.activeToolkitFolder(for: $0, in: state) }
+                let isLocal = state.app.models.first(where: { $0.id == work.modelID })?.kind.isLocal == true
+                let reply = canSuggestSchedule || work.toolkitGrant != nil
+                    ? SecretaryResponse.parse(output.text)
+                    : SecretaryResponse(text: output.text, schedule: nil)
+                let suggestion = isLocal ? ToolkitSuggestions.validProposal(reply.toolkit, for: folder) : nil
+                if suggestion != nil { state.app.tasks[index].toolkitSuggestion = suggestion }
+                state.app.tasks[index].result = proposal?.summary ?? reply.text
                 if (work.kind == .conversation || work.kind == .reminder),
                    let i = state.app.threads.firstIndex(where: { $0.id == work.threadID }) {
-                    let reply = work.kind == .conversation && state.app.threads[i].role == .secretary
-                        ? SecretaryResponse.parse(output.text)
-                        : SecretaryResponse(text: output.text, schedule: nil)
-                    let message = Message(reply.text, role: .assistant, scheduleSuggestion: reply.schedule)
+                    let message = Message(
+                        reply.text, role: .assistant,
+                        scheduleSuggestion: canSuggestSchedule && suggestion == nil ? reply.schedule : nil,
+                        toolkitSuggestion: suggestion
+                    )
+                    if suggestion != nil { state.app.tasks[index].toolkitSuggestionMessageID = message.id }
                     let origin = state.replyMessages[work.id]
                     if let j = state.app.threads[i].messages.firstIndex(where: { $0.id == origin }) {
                         state.app.threads[i].messages.insert(message, at: j + 1)

@@ -111,3 +111,20 @@ public struct ToolkitInvocation: Codable, Identifiable, Sendable {
         self.updatedAt = updatedAt
     }
 }
+
+public struct ToolkitSuggestion: Codable, Sendable {
+    public let tool: ToolkitTool
+    public let resourceID: UUID
+    public let path: String
+    public let destination: String?
+}
+
+public struct ToolkitWorkGrant: Codable, Sendable {
+    public let resourceID: UUID
+    public let requestedByDeviceID: UUID
+
+    public init(resourceID: UUID, requestedByDeviceID: UUID) {
+        self.resourceID = resourceID
+        self.requestedByDeviceID = requestedByDeviceID
+    }
+}

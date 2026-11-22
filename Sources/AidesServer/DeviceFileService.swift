@@ -156,7 +156,8 @@ extension AidesService {
     }
 
     func createDeviceFileJob(
-        _ input: NewDeviceFileJob, deviceID: UUID, invocationID: UUID? = nil
+        _ input: NewDeviceFileJob, deviceID: UUID, invocationID: UUID? = nil,
+        authorize: @Sendable (ServerState) throws -> Void = { _ in }
     ) async throws -> DeviceFileJob {
         let path = input.operation == .list && input.path == "." ? "" : input.path
         do {
@@ -171,7 +172,7 @@ extension AidesService {
             throw Abort(.badRequest, reason: "Use relative paths within the granted folder.")
         }
 
-        return try await updateDeviceFiles(for: deviceID) { files, now in
+        return try await updateDeviceFiles(for: deviceID, authorize: authorize) { files, now in
             if let invocationID {
                 if let job = files.jobs.first(where: { $0.id == invocationID }) {
                     guard job.requestedByDeviceID == deviceID, job.grantID == input.grantID,
@@ -262,10 +263,12 @@ extension AidesService {
     }
 
     private func updateDeviceFiles<Result: Sendable>(
-        for deviceID: UUID, _ operation: @Sendable (inout DeviceFileState, Date) throws -> Result
+        for deviceID: UUID, authorize: @Sendable (ServerState) throws -> Void = { _ in },
+        _ operation: @Sendable (inout DeviceFileState, Date) throws -> Result
     ) async throws -> Result {
         try await store.update { state in
             try Self.requireDeviceFileAccess(deviceID, in: state)
+            try authorize(state)
             var files = state.deviceFiles ?? DeviceFileState()
             let now = Date.now
             files.expireClaims(at: now)

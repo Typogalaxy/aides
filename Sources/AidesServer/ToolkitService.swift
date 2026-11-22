@@ -14,7 +14,10 @@ extension AidesService {
         return ToolkitCatalog(tools: ToolkitTool.allCases.map(\.descriptor), resources: resources)
     }
 
-    func invokeToolkit(_ input: ToolkitInvocationRequest, deviceID: UUID) async throws -> ToolkitInvocation {
+    func invokeToolkit(
+        _ input: ToolkitInvocationRequest, deviceID: UUID,
+        authorize: @Sendable (ServerState) throws -> Void = { _ in }
+    ) async throws -> ToolkitInvocation {
         let operation: DeviceFileOperation = switch input.tool {
         case .listDirectory: .list
         case .readTextFile: .read
@@ -22,7 +25,7 @@ extension AidesService {
         }
         let job = try await createDeviceFileJob(
             NewDeviceFileJob(grantID: input.resourceID, operation: operation, path: input.path, destination: input.destination),
-            deviceID: deviceID, invocationID: input.id
+            deviceID: deviceID, invocationID: input.id, authorize: authorize
         )
         return job.toolkitInvocation
     }

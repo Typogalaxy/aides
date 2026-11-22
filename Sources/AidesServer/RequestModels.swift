@@ -6,7 +6,10 @@ struct PairingResult: Encodable { let token: String; let deviceID: UUID }
 struct InviteResult: Encodable { let code: String }
 struct HealthResult: Encodable { let status = "ok" }
 struct NewThread: Decodable { let title: String; let role: ConversationRole; let projectID: UUID? }
-struct NewMessage: Decodable { let text: String }
+struct NewMessage: Decodable {
+    let text: String
+    let toolkitResourceID: UUID?
+}
 struct ArchiveThread: Decodable { let report: String }
 struct NewProject: Decodable { let name: String; let directory: String? }
 struct NewTask: Decodable {
@@ -18,6 +21,7 @@ struct NewTask: Decodable {
     let scheduledAt: Date?
     let kind: WorkKind?
     let sharedMemoryIDs: [UUID]?
+    let toolkitResourceID: UUID?
 }
 struct NewReview: Decodable {
     let title: String

@@ -119,22 +119,24 @@ struct AidesService: Sendable {
         }
     }
 
-    func message(in id: UUID, text: String) async throws -> AppState {
-        let text = try Self.required(text, max: 20_000)
+    func message(in id: UUID, input: NewMessage, deviceID: UUID) async throws -> AppState {
+        let text = try Self.required(input.text, max: 20_000)
         return try await change { state in
             guard let index = state.app.threads.firstIndex(where: { $0.id == id }), state.app.threads[index].archivedAt == nil else {
                 throw Abort(.notFound)
             }
+            let toolkitGrant = try Self.makeToolkitGrant(input.toolkitResourceID, deviceID: deviceID, in: state)
             let message = Message(text, role: .user)
             state.app.threads[index].messages.append(message)
             guard let modelID = state.app.settings.defaultModelID else {
                 state.app.threads[index].messages.append(Message("Configure a local model in Settings before asking for a reply.", role: .system))
                 return
             }
-            let task = WorkItem(
+            var task = WorkItem(
                 title: "Reply to \(state.app.threads[index].title)", instruction: text,
                 threadID: id, projectID: state.app.threads[index].projectID, modelID: modelID, kind: .conversation
             )
+            task.toolkitGrant = toolkitGrant
             state.app.tasks.append(task)
             state.replyMessages[task.id] = message.id
         }

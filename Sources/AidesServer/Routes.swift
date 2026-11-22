@@ -31,8 +31,8 @@ func configureRoutes(_ app: Application, service: AidesService) {
         return try await json(service.createThread(decode(NewThread.self, request)))
     }
     api.post("threads", ":id", "messages") { request in
-        _ = try await service.authenticatedDevice(request)
-        return try await json(service.message(in: id(request), text: decode(NewMessage.self, request).text))
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.message(in: id(request), input: decode(NewMessage.self, request), deviceID: device))
     }
     api.post("threads", ":id", "archive") { request in
         _ = try await service.authenticatedDevice(request)
@@ -67,8 +67,8 @@ func configureRoutes(_ app: Application, service: AidesService) {
         return try await json(service.deleteMemory(id(request)))
     }
     api.post("tasks") { request in
-        _ = try await service.authenticatedDevice(request)
-        return try await json(service.createTask(decode(NewTask.self, request)))
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.createTask(decode(NewTask.self, request), deviceID: device))
     }
     api.post("tasks", ":id", "approve") { request in
         _ = try await service.authenticatedDevice(request)
@@ -119,6 +119,10 @@ func configureRoutes(_ app: Application, service: AidesService) {
         return try await json(service.closeReview(id(request)))
     }
     let toolkit = api.grouped("toolkit")
+    toolkit.post("suggestions", ":id", "accept") { request in
+        let device = try await service.authenticatedDevice(request)
+        return try await json(service.acceptToolkitSuggestion(id(request), deviceID: device))
+    }
     toolkit.get("catalog") { request in
         let device = try await service.authenticatedDevice(request)
         return try await json(service.toolkitCatalog(deviceID: device))
@@ -164,7 +168,7 @@ private func id(_ request: Request) throws -> UUID {
     return id
 }
 
-private func decode<Value: Decodable>(_ type: Value.Type, _ request: Request) throws -> Value {
+func decode<Value: Decodable>(_ type: Value.Type, _ request: Request) throws -> Value {
     guard let body = request.body.data else { throw Abort(.badRequest, reason: "Missing request body.") }
     do {
         return try AppJSON.decoder().decode(type, from: Data(body.readableBytesView))
@@ -173,7 +177,7 @@ private func decode<Value: Decodable>(_ type: Value.Type, _ request: Request) th
     }
 }
 
-private func json(_ value: some Encodable) throws -> Response {
+func json(_ value: some Encodable) throws -> Response {
     var headers = HTTPHeaders()
     headers.replaceOrAdd(name: .contentType, value: "application/json; charset=utf-8")
     headers.replaceOrAdd(name: .cacheControl, value: "no-store")

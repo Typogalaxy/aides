@@ -15,16 +15,18 @@ public struct Message: Codable, Identifiable, Sendable {
     public let createdAt: Date
 
     public let scheduleSuggestion: ScheduleSuggestion?
+    public let toolkitSuggestion: ToolkitSuggestion?
 
     public init(
         _ text: String, role: MessageRole, now: Date = .now,
-        scheduleSuggestion: ScheduleSuggestion? = nil
+        scheduleSuggestion: ScheduleSuggestion? = nil, toolkitSuggestion: ToolkitSuggestion? = nil
     ) {
         id = UUID()
         self.text = text
         self.role = role
         createdAt = now
         self.scheduleSuggestion = scheduleSuggestion
+        self.toolkitSuggestion = toolkitSuggestion
     }
 }
 
@@ -87,6 +89,9 @@ public struct WorkItem: Codable, Identifiable, Sendable {
     public let instruction: String
     public var approvedCloud: Bool
     public var sharedMemories: [MemoryRecord]?
+    public var toolkitGrant: ToolkitWorkGrant?
+    public var toolkitSuggestion: ToolkitSuggestion?
+    public var toolkitSuggestionMessageID: UUID?
     public var status: WorkStatus
     public var scheduledAt: Date?
     public var result: String?
