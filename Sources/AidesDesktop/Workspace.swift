@@ -307,6 +307,15 @@ final class Workspace {
         return created
     }
 
+    func sendMail(suggestedBy messageID: UUID) async -> Bool {
+        var queued = false
+        await perform {
+            try await update(["mail", "suggestions", messageID.uuidString, "send"], EmptyRequest())
+            queued = true
+        }
+        return queued
+    }
+
     func confirmSchedule(suggestedBy messageID: UUID) async {
         await perform {
             try await update(["schedules", "suggestions", messageID.uuidString, "accept"], EmptyRequest())

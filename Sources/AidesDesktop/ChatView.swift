@@ -160,6 +160,10 @@ struct ChatView: View {
                                     )
                                     .padding(.leading, 39)
                                 }
+                                if let draft = message.mailSuggestion {
+                                    MailSuggestionView(workspace: workspace, messageID: message.id, draft: draft)
+                                        .padding(.leading, 39)
+                                }
                             }
                             .contextMenu {
                                     if message.isUser {
