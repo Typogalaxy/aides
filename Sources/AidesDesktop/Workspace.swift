@@ -249,6 +249,29 @@ final class Workspace {
         await perform { try await update(["projects", id.uuidString, "watch"], ProjectWatchRequest(enabled: enabled)) }
     }
 
+    func createCodeProposal(_ request: CodeProposalRequest) async -> UUID? {
+        var created: UUID?
+        await perform {
+            let known = Set(state.tasks.map(\.id))
+            try await update(["code-proposals"], request)
+            created = state.tasks.last { $0.kind == .codeProposal && $0.title == request.title && !known.contains($0.id) }?.id
+        }
+        return created
+    }
+
+    func codeProposal(_ id: UUID) async throws -> CodeProposalDetail {
+        try await authenticated().get(["code-proposals", id.uuidString])
+    }
+
+    func applyCodeProposal(_ id: UUID, path: String) async -> Bool {
+        var applied = false
+        await perform {
+            try await update(["code-proposals", id.uuidString, "apply"], ApplyCodeProposalRequest(path: path))
+            applied = true
+        }
+        return applied
+    }
+
     func createReview(_ request: ReviewRequest) async -> UUID? {
         var created: UUID?
         await perform {
@@ -356,6 +379,7 @@ private struct InviteResponse: Decodable & Sendable { let code: String }
 private struct ThreadRequest: Encodable { let title: String; let role: String; let projectID: UUID? }
 private struct ArchiveRequest: Encodable { let report: String }
 private struct MessageRequest: Encodable { let text: String }
+private struct ApplyCodeProposalRequest: Encodable { let path: String }
 private struct ProjectWatchRequest: Encodable { let enabled: Bool }
 private struct ProjectRequest: Encodable { let name: String; let directory: String? }
 private struct PauseRequest: Encodable { let paused: Bool }

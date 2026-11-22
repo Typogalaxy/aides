@@ -8,6 +8,7 @@ struct ChatView: View {
     let showWorker: (UUID) -> Void
 
     @ViewState private var showsTask = false
+    @ViewState private var proposalProject: Project?
     @ViewState private var showsReview = false
     @ViewState private var showsArchive = false
 
@@ -24,6 +25,11 @@ struct ChatView: View {
                 }
                 Spacer()
                 if conversation.archivedAt == nil {
+                    if let id = conversation.projectID,
+                       let project = workspace.state.projects.first(where: { $0.id == id }), project.directory != nil {
+                        Button("Propose code…") { proposalProject = project }
+                            .disabled(workspace.state.models.isEmpty)
+                    }
                     Button("Review task…") { showsReview = true }
                         .disabled(workspace.state.models.count < 2)
                     Button {
@@ -91,6 +97,9 @@ struct ChatView: View {
             NewTaskSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {
                 showWorker($0)
             }
+        }
+        .sheet(item: $proposalProject) { project in
+            NewCodeProposalSheet(workspace: workspace, project: project, threadID: conversation.id, onCreated: showWorker)
         }
         .sheet(isPresented: $showsReview) {
             NewReviewSheet(workspace: workspace, threadID: conversation.id, projectID: conversation.projectID) {

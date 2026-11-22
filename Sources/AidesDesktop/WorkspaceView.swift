@@ -177,6 +177,8 @@ struct WorkspaceView: View {
             ProjectsView(workspace: workspace, selection: $projectID) { id in
                 page = .conversations
                 conversationID = id
+            } showWorker: { id in
+                inspectorTaskID = id
             }
         case .workers:
             WorkersView(workspace: workspace) { inspectorTaskID = $0 }

@@ -5,9 +5,11 @@ struct ProjectsView: View {
     let workspace: Workspace
     @Binding var selection: UUID?
     let showConversation: (UUID) -> Void
+    let showWorker: (UUID) -> Void
 
     @ViewState private var showsProject = false
     @ViewState private var conversationProject: Project?
+    @ViewState private var proposalProject: Project?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,6 +54,9 @@ struct ProjectsView: View {
         .sheet(item: $conversationProject) { project in
             NewConversationSheet(workspace: workspace, defaultProjectID: project.id, onCreated: showConversation)
         }
+        .sheet(item: $proposalProject) { project in
+            NewCodeProposalSheet(workspace: workspace, project: project, onCreated: showWorker)
+        }
     }
 
     private func details(_ project: Project) -> some View {
@@ -63,11 +68,16 @@ struct ProjectsView: View {
                         .font(.callout.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                    Toggle("Watch directory", isOn: Binding(
-                        get: { project.watching == true },
-                        set: { enabled in Task { await workspace.setProjectWatching(project.id, enabled: enabled) } }
-                    ))
-                    .disabled(workspace.isWorking)
+                    HStack {
+                        Toggle("Watch directory", isOn: Binding(
+                            get: { project.watching == true },
+                            set: { enabled in Task { await workspace.setProjectWatching(project.id, enabled: enabled) } }
+                        ))
+                        .disabled(workspace.isWorking)
+                        Spacer()
+                        Button("Propose code changes…") { proposalProject = project }
+                            .disabled(workspace.state.models.isEmpty)
+                    }
                 }
                 Divider()
                 HStack {

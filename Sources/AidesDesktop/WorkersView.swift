@@ -189,7 +189,10 @@ struct WorkerInspector: View {
                         LabeledContent("Scheduled", value: scheduledAt.formatted(date: .abbreviated, time: .shortened))
                     }
                     LabeledContent("Updated", value: task.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    if task.kind == .review {
+                    if task.kind == .codeProposal {
+                        CodeProposalDetails(workspace: workspace, task: task)
+                            .id(task.id)
+                    } else if task.kind == .review {
                         ReviewDetails(workspace: workspace, review: task)
                     } else if task.status == .waitingApproval {
                         ApprovalDetails(workspace: workspace, task: task)

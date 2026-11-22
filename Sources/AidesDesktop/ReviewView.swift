@@ -147,6 +147,7 @@ struct ReviewDetails: View {
 struct ApprovalDetails: View {
     let workspace: Workspace
     let task: WorkItem
+    var includesFiles = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -157,7 +158,7 @@ struct ApprovalDetails: View {
             if let project = workspace.state.projects.first(where: { $0.id == task.projectID }) {
                 LabeledContent("Project", value: project.name)
             }
-            Text("The following task instructions will be sent to the provider.")
+            Text(includesFiles ? "The following instructions and the listed file contents will be sent to the provider." : "The following task instructions will be sent to the provider.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(task.instruction)
