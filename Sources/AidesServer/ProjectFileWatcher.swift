@@ -1,3 +1,4 @@
+import AidesCore
 import Foundation
 
 struct ProjectFileSnapshot: Codable, Equatable, Sendable {

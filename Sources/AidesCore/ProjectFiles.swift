@@ -21,20 +21,20 @@ enum ProjectFileError: LocalizedError {
     }
 }
 
-enum ProjectFiles {
-    static let maxBytes = 65_536
+public enum ProjectFiles {
+    public static let maxBytes = 65_536
 
-    static func validate(path: String) throws {
+    public static func validate(path: String) throws {
         _ = try components(path)
     }
 
-    static func read(path: String, in root: URL) throws -> String? {
+    public static func read(path: String, in root: URL) throws -> String? {
         try withParent(of: path, in: root) { directory, name in
             try contents(of: name, in: directory)?.text
         }
     }
 
-    static func apply(path: String, expected: String?, replacement: String, in root: URL) throws {
+    public static func apply(path: String, expected: String?, replacement: String, in root: URL) throws {
         let replacementBytes = try textBytes(replacement)
         let expectedBytes = try expected.map(textBytes)
         try withParent(of: path, in: root) { directory, name in
@@ -77,7 +77,58 @@ enum ProjectFiles {
         }
     }
 
-    static func isProtectedComponent(_ name: String) -> Bool {
+    public static func list(path: String, in root: URL) throws -> [String] {
+        let parts = path == "." ? [] : try components(path)
+        return try withDirectory(parts, in: root) { directory in
+            let copy = dup(directory)
+            guard copy >= 0 else { throw ProjectFileError.io }
+            guard let stream = fdopendir(copy) else {
+                close(copy)
+                throw ProjectFileError.io
+            }
+            defer { closedir(stream) }
+            var names: [String] = []
+            var scanned = 0
+            while let item = readdir(stream) {
+                scanned += 1
+                guard scanned <= 2_000 else { throw ProjectFileError.io }
+                let nameBytes = withUnsafeBytes(of: item.pointee.d_name) { [UInt8]($0.prefix(while: { $0 != 0 })) }
+                guard let name = String(bytes: nameBytes, encoding: .utf8),
+                      (try? validate(path: name)) != nil else { continue }
+                var metadata = stat()
+                if fstatat(directory, name, &metadata, AT_SYMLINK_NOFOLLOW) != 0 { continue }
+                switch metadata.st_mode & S_IFMT {
+                case S_IFDIR: names.append(name + "/")
+                case S_IFREG where metadata.st_nlink == 1: names.append(name)
+                default: continue
+                }
+            }
+            return names.sorted()
+        }
+    }
+
+    public static func move(path: String, to destination: String, in root: URL) throws {
+        guard path != destination else { return }
+        try withParent(of: path, in: root) { source, name in
+            try withParent(of: destination, in: root) { target, replacement in
+                guard flock(source, LOCK_EX) == 0 else { throw ProjectFileError.io }
+                defer { flock(source, LOCK_UN) }
+                var metadata = stat()
+                guard fstatat(source, name, &metadata, AT_SYMLINK_NOFOLLOW) == 0,
+                      metadata.st_mode & S_IFMT == S_IFREG, metadata.st_nlink == 1 else {
+                    throw ProjectFileError.unsupportedFile
+                }
+                guard renameatx_np(source, name, target, replacement, UInt32(RENAME_EXCL)) == 0 else {
+                    if errno == EEXIST { throw ProjectFileError.changed }
+                    throw ProjectFileError.io
+                }
+                _ = fsync(source)
+                _ = fsync(target)
+            }
+        }
+    }
+
+    public static func isProtectedComponent(_ name: String) -> Bool {
         let name = name.lowercased()
         let denied: Set<String> = [
             ".git", ".env", ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".config",
@@ -118,6 +169,14 @@ enum ProjectFiles {
         of path: String, in root: URL, operation: (CInt, String) throws -> Result
     ) throws -> Result {
         let pieces = try components(path)
+        return try withDirectory(Array(pieces.dropLast()), in: root) { directory in
+            try operation(directory, pieces[pieces.count - 1])
+        }
+    }
+
+    private static func withDirectory<Result>(
+        _ parts: [String], in root: URL, operation: (CInt) throws -> Result
+    ) throws -> Result {
         guard root.isFileURL, root.path.hasPrefix("/"), root.standardizedFileURL.path != "/" else {
             throw ProjectFileError.unavailableDirectory
         }
@@ -125,13 +184,13 @@ enum ProjectFiles {
         var directory = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard directory >= 0 else { throw ProjectFileError.unavailableDirectory }
         defer { close(directory) }
-        for part in rootPieces + pieces.dropLast() {
+        for part in rootPieces + parts {
             let next = openat(directory, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
             guard next >= 0 else { throw ProjectFileError.unavailableDirectory }
             close(directory)
             directory = next
         }
-        return try operation(directory, pieces[pieces.count - 1])
+        return try operation(directory)
     }
 
     private static func textBytes(_ text: String) throws -> Data {

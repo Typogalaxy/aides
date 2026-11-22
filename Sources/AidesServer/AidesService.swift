@@ -117,6 +117,11 @@ struct AidesService: Sendable {
         if let path = input.directory, !path.isEmpty {
             guard path.hasPrefix("/") else { throw Abort(.badRequest, reason: "Use an absolute path on the server.") }
             directory = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath().standardizedFileURL
+            let privateData = host.directory.resolvingSymlinksInPath().standardizedFileURL.path
+            guard directory.path != "/", directory.path != privateData,
+                  !privateData.hasPrefix(directory.path + "/"), !directory.path.hasPrefix(privateData + "/") else {
+                throw Abort(.badRequest, reason: "Choose a working directory separate from Aides data.")
+            }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 throw Abort(.badRequest, reason: "The server cannot find that directory.")
