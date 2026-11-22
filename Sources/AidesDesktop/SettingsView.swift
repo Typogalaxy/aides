@@ -49,7 +49,12 @@ private struct ModelSettingsView: View {
     var body: some View {
         Form {
             Section("Defaults") {
-                ModelPicker(models: workspace.state.models, selection: $selection)
+                Picker("Secretary’s local model", selection: $selection) {
+                    if loadedModelID == nil { Text("Choose a local model").tag(UUID?.none) }
+                    ForEach(workspace.state.models.filter { $0.kind.isLocal }) { model in
+                        Text(model.name).tag(Optional(model.id))
+                    }
+                }
                 TextField("Global reply preference", text: $preference, axis: .vertical)
                     .lineLimit(3...6)
                 Button("Save defaults") {
@@ -116,15 +121,14 @@ private struct AddModelSheet: View {
                     ForEach(providers, id: \.self) { provider in Text(provider.label).tag(provider) }
                 }
                 if kind != .mock {
-                    TextField(kind == .codex || kind == .claudeCode ? "Executable on server" : "Endpoint", text: $endpoint)
-                }
-                if kind == .codex || kind == .claudeCode {
-                    TextField("Model identifier (optional)", text: $model)
-                    Text("Sign in on the Mac running the server using the provider’s official command-line tool.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if kind != .mock {
                     TextField("Model identifier", text: $model)
+                    if kind == .codex || kind == .claudeCode {
+                        Text("Sign in to the official CLI on the server Mac. Set its absolute path using \(kind == .codex ? "AIDES_CODEX_PATH" : "AIDES_CLAUDE_CODE_PATH") before starting the server.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("Endpoint", text: $endpoint)
+                    }
                 }
                 if kind.needsAPIKey {
                     SecureField("API key", text: $key)
@@ -164,7 +168,7 @@ private struct AddModelSheet: View {
     private var providerIsConfigured: Bool {
         switch kind {
         case .mock: true
-        case .codex, .claudeCode: !endpoint.trimmed.isEmpty
+        case .codex, .claudeCode: !model.trimmed.isEmpty
         default: !endpoint.trimmed.isEmpty && !model.trimmed.isEmpty && (!kind.needsAPIKey || !key.trimmed.isEmpty)
         }
     }

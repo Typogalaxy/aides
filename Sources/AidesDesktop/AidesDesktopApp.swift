@@ -42,4 +42,3 @@ enum DesktopAppearance: String, CaseIterable, Identifiable {
         }
     }
 }
-
