@@ -61,7 +61,7 @@ struct ToolkitMailAttachmentTests {
             case "/v1.0/me/messages/id-a":
                 return Data(#"{"id":"id-a","hasAttachments":true}"#.utf8)
             case "/v1.0/me/messages/id-a/attachments":
-                return Data(#"{"value":[{"@odata.type":"#microsoft.graph.fileAttachment","id":"native-id","name":"note.txt","contentType":"text/plain; charset=UTF-8","size":4},{"@odata.type":"#microsoft.graph.referenceAttachment","id":"link-native","name":"link.txt","contentType":"text/plain","size":4}]}"#.utf8)
+                return Data(##"{"value":[{"@odata.type":"#microsoft.graph.fileAttachment","id":"native-id","name":"note.txt","contentType":"text/plain; charset=UTF-8","size":4},{"@odata.type":"#microsoft.graph.referenceAttachment","id":"link-native","name":"link.txt","contentType":"text/plain","size":4}]}"##.utf8)
             case "/v1.0/me/messages/id-a/attachments/native-id/$value":
                 return Data([0xFF, 0, 21, 42])
             default:
