@@ -44,6 +44,11 @@ plutil -insert CFBundleVersion -string "$build_number" "$contents/Info.plist"
 install -m 755 "$bin_dir/AidesDesktop" "$contents/MacOS/AidesDesktop"
 install -m 755 "$bin_dir/AidesServer" "$contents/Helpers/AidesServer"
 install -m 755 "$script_dir/aides-service" "$contents/Resources/aides-service"
+for executable in "$contents/MacOS/AidesDesktop" "$contents/Helpers/AidesServer"; do
+    if ! otool -l "$executable" | awk '$1 == "path" && $2 == "@executable_path/../Frameworks" { found=1 } END { exit !found }'; then
+        install_name_tool -add_rpath '@executable_path/../Frameworks' "$executable"
+    fi
+done
 ln -s /Applications "$stage/image/Applications"
 xcrun swift-stdlib-tool --copy --platform macosx --destination "$contents/Frameworks" \
     --scan-executable "$contents/MacOS/AidesDesktop" --scan-executable "$contents/Helpers/AidesServer"
