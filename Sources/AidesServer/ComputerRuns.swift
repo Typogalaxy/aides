@@ -186,8 +186,7 @@ actor ComputerRuns {
         let state = await store.snapshot()
         let entry = try Self.find(id, deviceID: deviceID, in: state, targetOnly: true)
         try Self.requirePaired(entry.run.requestedByDeviceID, in: state)
-        guard entry.run.status == .running, entry.run.pendingCommandID == commandID,
-              entry.claimedAt != nil, (entry.approvedUntil ?? .distantPast) > .now else { throw Abort(.conflict) }
+        guard Self.hasLiveClaim(entry, commandID: commandID, now: .now) else { throw Abort(.conflict) }
         return entry.run
     }
 
@@ -200,8 +199,7 @@ actor ComputerRuns {
             var entry = try Self.find(id, deviceID: deviceID, in: state, targetOnly: true)
             if entry.lastReceiptID == input.commandID { return (entry.run, false) }
             try Self.requirePaired(entry.run.requestedByDeviceID, in: state)
-            guard entry.run.status == .running, entry.run.pendingCommandID == input.commandID,
-                  entry.claimedAt != nil, (entry.approvedUntil ?? .distantPast) > .now,
+            guard Self.hasLiveClaim(entry, commandID: input.commandID, now: .now),
                   let command, command.runID == id else { throw Abort(.conflict, reason: "The action is no longer active.") }
             if let observation = input.observation {
                 guard observation.isValid(allowImages: entry.run.includeImages, expectedAppID: command.action.appID),
@@ -223,13 +221,6 @@ actor ComputerRuns {
         }
         clearCommand(input.commandID)
         if outcome.plan, let observation = input.observation {
-            var windows = recentWindows[id] ?? []
-            windows.removeAll { $0.appID == observation.appID }
-            windows.append(ComputerObservation(
-                appID: observation.appID, windowTitle: observation.windowTitle, elements: observation.elements,
-                isBackground: observation.isBackground
-            ))
-            recentWindows[id] = Array(windows.suffix(3))
             let receiptID = input.commandID
             planning[id] = (receiptID, Task { await plan(id, observation: observation, receiptID: receiptID) })
         } else if !outcome.run.status.isActive {
@@ -308,6 +299,13 @@ actor ComputerRuns {
             if planning[id]?.receiptID == receiptID { recentWindows.removeValue(forKey: id) }
             return
         }
+        var windows = recentWindows[id] ?? []
+        windows.removeAll { $0.appID == observation.appID }
+        windows.append(ComputerObservation(
+            appID: observation.appID, windowTitle: observation.windowTitle, elements: observation.elements,
+            isBackground: observation.isBackground
+        ))
+        recentWindows[id] = Array(windows.suffix(3))
         guard entry.run.steps.count < Self.stepLimit else {
             await pausePlanning(id, receiptID: receiptID, message: "The Computer Use step budget was reached.")
             return
@@ -458,11 +456,18 @@ actor ComputerRuns {
     }
 
     private static let stepLimit = 40
+    private static let claimSeconds: TimeInterval = 50
+
+    private static func hasLiveClaim(_ entry: ComputerStoredRun, commandID: UUID, now: Date) -> Bool {
+        guard entry.run.status == .running, entry.run.pendingCommandID == commandID,
+              let claimedAt = entry.claimedAt, let deadline = entry.approvedUntil else { return false }
+        return now.timeIntervalSince(claimedAt) < claimSeconds && deadline > now
+    }
 
     private static func isExpired(_ entry: ComputerStoredRun, at now: Date) -> Bool {
         entry.run.status.isActive && (
             (entry.approvedUntil ?? .distantPast) <= now ||
-            entry.claimedAt.map { now.timeIntervalSince($0) > 50 } == true ||
+            entry.claimedAt.map { now.timeIntervalSince($0) >= claimSeconds } == true ||
             (entry.run.status == .running && entry.claimedAt == nil && now.timeIntervalSince(entry.run.updatedAt) > 120)
         )
     }
