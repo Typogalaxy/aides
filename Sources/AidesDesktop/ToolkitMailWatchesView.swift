@@ -14,7 +14,7 @@ struct ToolkitMailWatchesSection: View {
 
     var body: some View {
         Section("Mail watches") {
-            HStack {
+            SettingsActions {
                 Button("Add mail watch…") { showsAdd = true }.disabled(account == nil)
                 Button("Refresh") { Task { await refresh() } }
             }
@@ -24,9 +24,8 @@ struct ToolkitMailWatchesSection: View {
             }
             ForEach(watches) { watch in
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(watch.query).desktopUIFont(.body, weight: .medium)
-                        Spacer()
+                    Text(watch.query).desktopUIFont(.body, weight: .medium)
+                    SettingsActions {
                         Button(watch.paused ? "Resume" : "Pause") { Task { await toggle(watch) } }
                         Button("Remove", role: .destructive) { removing = watch }
                     }
@@ -108,27 +107,24 @@ private struct AddToolkitMailWatchSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PageHeading("Add mail watch")
-            Form {
-                LabeledContent("Account", value: account.address)
-                TextField("Search terms", text: $query)
+        SettingsFormSheet(title: "Add mail watch", idealWidth: 460) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsDetail("Account", value: account.address)
+                SettingsField("Search terms") {
+                    TextField("", text: $query)
+                }
                 Stepper("Check every \(intervalMinutes) minutes", value: $intervalMinutes, in: 5...1440, step: 5)
                 Text("The first check establishes the baseline. Later matches create a notice in Aides.")
                     .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Confirm and start watch") { Task { await add() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(query.trimmed.isEmpty)
-            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Confirm and start watch") { Task { await add() } }
+                .buttonStyle(.borderedProminent)
+                .disabled(query.trimmed.isEmpty)
         }
-        .padding(22)
-        .frame(width: 460)
         .disabled(isWorking)
         .onAppear { query = initialQuery }
     }

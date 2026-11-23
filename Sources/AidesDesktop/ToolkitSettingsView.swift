@@ -25,7 +25,6 @@ struct ToolkitSettingsView: View {
                 }
             }
             .pickerStyle(.menu)
-            .fixedSize()
             .padding(.horizontal, 16)
 
             switch pane {

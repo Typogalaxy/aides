@@ -40,7 +40,7 @@ private struct ToolkitCalendarSection: View {
                     }
                 }
                 DatePicker("Day", selection: $selectedDay, displayedComponents: .date)
-                HStack {
+                SettingsActions {
                     Button("View day") { loadDay() }
                         .disabled(calendarID == nil)
                     Button("Add event…") { showsNewEvent = true }
@@ -57,7 +57,7 @@ private struct ToolkitCalendarSection: View {
                 }
                 ForEach(dayEvents) { event in
                     HStack {
-                        LabeledContent(event.title, value: event.allDay ? "All day" : timeRange(event.start, event.end))
+                        SettingsDetail(event.title, value: event.allDay ? "All day" : timeRange(event.start, event.end))
                         if event.canEdit {
                             Button("Edit…") { editingEvent = event }
                         }
@@ -203,25 +203,22 @@ private struct ToolkitCalendarEventSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            PageHeading(original == nil ? "Add calendar event" : "Edit calendar event")
-            Form {
-                LabeledContent("Calendar", value: calendar.title)
-                TextField("Title", text: $title)
+        SettingsFormSheet(title: original == nil ? "Add calendar event" : "Edit calendar event", idealWidth: 470) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsDetail("Calendar", value: calendar.title)
+                SettingsField("Title") {
+                    TextField("", text: $title)
+                }
                 DatePicker("Starts", selection: $start)
                 DatePicker("Ends", selection: $end)
             }
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Review event") { confirms = true }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(end <= start || title.trimmed.isEmpty || title.trimmed.count > 180)
-            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Review event") { confirms = true }
+                .buttonStyle(.borderedProminent)
+                .disabled(end <= start || title.trimmed.isEmpty || title.trimmed.count > 180)
         }
-        .padding(22)
-        .frame(width: 470)
         .confirmationDialog(original == nil ? "Add this event?" : "Save changes to this event?", isPresented: $confirms) {
             Button(original == nil ? "Confirm and add" : "Confirm and save") { save() }
         } message: {
@@ -286,13 +283,11 @@ private struct ToolkitContactsSection: View {
                         Text(container.name.isEmpty ? "Local contacts" : container.name).tag(Optional(container.id))
                     }
                 }
-                HStack {
-                    TextField("Name or email", text: $query)
-                        .onSubmit { Task { await lookup() } }
-                    Button("Find contacts") { Task { await lookup() } }
-                        .disabled(containerID == nil || query.trimmed.isEmpty)
-                }
-                .disabled(busy)
+                TextField("Name or email", text: $query)
+                    .onSubmit { Task { await lookup() } }
+                    .disabled(busy)
+                Button("Find contacts") { Task { await lookup() } }
+                    .disabled(busy || containerID == nil || query.trimmed.isEmpty)
             }
             if let error {
                 Text(error).desktopUIFont(.callout).foregroundStyle(.orange).textSelection(.enabled)
@@ -411,32 +406,29 @@ private struct EditToolkitContactEmail: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            PageHeading("Edit contact email")
-            Form {
-                LabeledContent("Contact", value: contact.name.isEmpty ? "(No name)" : contact.name)
-                LabeledContent("Account", value: container.name.isEmpty ? "Local contacts" : container.name)
+        SettingsFormSheet(title: "Edit contact email", idealWidth: 470) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsDetail("Contact", value: contact.name.isEmpty ? "(No name)" : contact.name)
+                SettingsDetail("Account", value: container.name.isEmpty ? "Local contacts" : container.name)
                 Picker("Email", selection: $index) {
                     Text("Add an address").tag(Int?.none)
                     ForEach(contact.emails.indices, id: \.self) { index in
                         Text(contact.emails[index]).tag(Optional(index))
                     }
                 }
-                TextField("New email address", text: $address)
+                SettingsField("New email address") {
+                    TextField("", text: $address)
+                }
             }
             .onChange(of: index) { _, _ in address = currentAddress ?? "" }
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Review change") { confirmation = true }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!ready)
-            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Review change") { confirmation = true }
+                .buttonStyle(.borderedProminent)
+                .disabled(!ready)
         }
         .disabled(saving)
-        .padding(22)
-        .frame(width: 470)
         .confirmationDialog("Change this contact?", isPresented: $confirmation) {
             Button("Confirm and save") { Task { await save() } }
         } message: {
