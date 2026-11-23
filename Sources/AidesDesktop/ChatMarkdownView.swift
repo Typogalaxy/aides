@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -32,17 +33,21 @@ struct ChatMarkdownView: View {
     private func sectionView(_ section: ChatMarkdownDocument.Section) -> some View {
         switch section {
         case .block(let block):
-            HStack(alignment: .top, spacing: 8) {
-                if block.isListItem {
-                    Text(block.listMarker ?? " ")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(block.listMarker == nil)
+            MarkdownIndent(depth: block.listDepth, quoteDepth: block.quoteDepth) {
+                HStack(alignment: .top, spacing: 8) {
+                    if block.isListItem {
+                        Text(block.listMarker ?? " ")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .accessibilityHidden(block.listMarker == nil)
+                    }
+                    blockView(block)
+                        .layoutPriority(1)
                 }
-                blockView(block)
             }
-            .padding(.leading, CGFloat(max(block.listDepth - 1, 0)) * 18)
             .modifier(QuoteStyle(depth: block.quoteDepth))
         case .table(let table):
+            let widths = tableColumnWidths(table)
             ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     ForEach(table.rows.indices, id: \.self) { index in
@@ -52,7 +57,7 @@ struct ChatMarkdownView: View {
                                     .fontWeight(table.rows[index].isHeader ? .semibold : .regular)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
-                                    .frame(maxWidth: .infinity, alignment: columnAlignment(table.columns[column]))
+                                    .frame(width: widths[column], alignment: columnAlignment(table.columns[column]))
                             }
                         }
                         .background(index.isMultiple(of: 2) ? Color.primary.opacity(0.045) : Color.clear)
@@ -61,6 +66,8 @@ struct ChatMarkdownView: View {
                 .clipShape(.rect(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.quaternary))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
         }
     }
 
@@ -80,6 +87,8 @@ struct ChatMarkdownView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
             .background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
         case .thematicBreak:
             Rectangle().fill(.quaternary).frame(height: 1).accessibilityHidden(true)
@@ -129,6 +138,28 @@ struct ChatMarkdownView: View {
         }
     }
 
+    private func tableColumnWidths(_ table: ChatMarkdownDocument.Table) -> [CGFloat] {
+        let bodyFont = NSFont.systemFont(ofSize: bodySize)
+        let headerFont = NSFont.systemFont(ofSize: bodySize, weight: .semibold)
+        let codeFont = NSFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
+        let maximum = min(400, max(180, bodySize * 16))
+
+        return table.columns.indices.map { column in
+            let width = table.rows.reduce(CGFloat(0)) { widest, row in
+                guard let cell = row.cells[column] else { return widest }
+                let textFont = row.isHeader ? headerFont : bodyFont
+                let estimate = cell.runs.reduce(CGFloat(0)) { estimate, run in
+                    let font = run.inlinePresentationIntent?.contains(.code) == true ? codeFont : textFont
+                    let text = String(cell[run.range].characters) as NSString
+                    return estimate + text.size(withAttributes: [.font: font]).width
+                }
+                return max(estimate, widest)
+            }
+            // Grid must measure each wrapped row at the same width used for placement.
+            return min(maximum, max(60, ceil(width) + 28))
+        }
+    }
+
     private func columnAlignment(_ column: PresentationIntent.TableColumn) -> Alignment {
         switch column.alignment {
         case .left: .leading
@@ -161,6 +192,34 @@ private struct InlineCodeBackground: TextRenderer {
     }
 }
 
+private struct MarkdownIndent: Layout {
+    let depth: Int
+    let quoteDepth: Int
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let view = subviews.first else { return .zero }
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let indent = indentation(at: width)
+        let child = view.sizeThatFits(ProposedViewSize(width: width.map { max(0, $0 - indent) }, height: proposal.height))
+        return CGSize(width: width ?? child.width + indent, height: child.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let view = subviews.first else { return }
+        let indent = indentation(at: bounds.width)
+        view.place(
+            at: CGPoint(x: bounds.minX + indent, y: bounds.minY), anchor: .topLeading,
+            proposal: ProposedViewSize(width: max(0, bounds.width - indent), height: bounds.height)
+        )
+    }
+
+    private func indentation(at width: CGFloat?) -> CGFloat {
+        let desired = CGFloat(max(depth - 1, 0)) * 18 + CGFloat(quoteDepth) * 12
+        // Preserve space for text even when generated Markdown nests many levels.
+        return min(desired, (width ?? 320) * 0.30)
+    }
+}
+
 private struct QuoteStyle: ViewModifier {
     let depth: Int
 
@@ -168,7 +227,6 @@ private struct QuoteStyle: ViewModifier {
     func body(content: Content) -> some View {
         if depth > 0 {
             content
-                .padding(.leading, CGFloat(depth) * 12)
                 .overlay(alignment: .leading) {
                     Rectangle().fill(.quaternary).frame(width: 3)
                 }

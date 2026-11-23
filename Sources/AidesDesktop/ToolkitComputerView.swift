@@ -32,7 +32,7 @@ struct ToolkitComputerView: View {
                     }
                 }
                 if let app = availableApps.first(where: { $0.id == appPID }) {
-                    HStack {
+                    ComputerActionRow {
                         Button("Review activation…") { action = .activate(app) }
                         Button("Choose a window…") { Task { await listWindows(for: app) } }
                     }
@@ -67,7 +67,7 @@ struct ToolkitComputerView: View {
                         Image(decorative: snapshot, scale: 1)
                             .resizable()
                             .scaledToFit()
-                            .frame(maxHeight: 360)
+                            .frame(maxWidth: .infinity, maxHeight: 360, alignment: .leading)
                             .accessibilityLabel("Approved window preview")
                         Button("Clear preview") { self.snapshot = nil }
                     }

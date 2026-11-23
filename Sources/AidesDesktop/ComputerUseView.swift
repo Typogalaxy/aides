@@ -19,7 +19,7 @@ struct ComputerUseView: View {
     var body: some View {
         Form {
             Section("Computer Use") {
-                HStack {
+                ComputerActionRow {
                     Button("Start task…") { showsNewRun = true }
                         .buttonStyle(.borderedProminent)
                         .disabled(relay.isUnavailable || relay.isSending)
@@ -50,7 +50,7 @@ struct ComputerUseView: View {
                     Text("Press \(ComputerAppshotCapture.shortcut) in the target app. Review the attached window in Aides before you send it.")
                         .desktopUIFont(.caption)
                         .foregroundStyle(.secondary)
-                    HStack {
+                    ComputerActionRow {
                         Button("Enable Accessibility…") { promptAccessibility() }
                         if workspace.appshots.includeImages {
                             Button("Enable Screen Recording…") { _ = CGRequestScreenCaptureAccess() }
@@ -65,16 +65,16 @@ struct ComputerUseView: View {
             if !relay.rememberedApprovals.isEmpty {
                 Section("Remembered on this Mac") {
                     ForEach(relay.rememberedApprovals) { approval in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(workspace.toolkitDeviceName(approval.requesterID))
-                                Text(approval.appIDs.joined(separator: ", "))
-                                    .desktopUIFont(.caption).foregroundStyle(.secondary)
-                                Text(approvalSummary(approval)).desktopUIFont(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(workspace.toolkitDeviceName(approval.requesterID))
+                            Text(approval.appIDs.joined(separator: ", "))
+                                .desktopUIFont(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            Text(approvalSummary(approval)).desktopUIFont(.caption).foregroundStyle(.secondary)
                             Button("Forget", role: .destructive) { relay.forgetApproval(approval.id) }
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -96,18 +96,15 @@ struct ComputerUseView: View {
                     .keyboardShortcut(.cancelAction)
                     .padding()
             }
-            .frame(minWidth: 560, minHeight: 460)
+            .frame(idealWidth: 560, maxWidth: 620, idealHeight: 460, maxHeight: 660)
         }
         .sheet(item: $review) { review in reviewSheet(review) }
     }
 
     private func taskRow(_ run: ComputerRun) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(run.instruction).lineLimit(3).textSelection(.enabled)
-                Spacer()
-                Text(run.status.displayName).desktopUIFont(.caption, weight: .semibold).foregroundStyle(.secondary)
-            }
+            Text(run.instruction).lineLimit(3).textSelection(.enabled)
+            Text(run.status.displayName).desktopUIFont(.caption, weight: .semibold).foregroundStyle(.secondary)
             Text("\(workspace.toolkitDeviceName(run.deviceID)) · \(run.appIDs.joined(separator: ", "))")
                 .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
@@ -121,7 +118,7 @@ struct ComputerUseView: View {
             if !run.steps.isEmpty {
                 DisclosureGroup("Activity (\(run.steps.count))") {
                     ForEach(run.steps, id: \.number) { step in
-                        LabeledContent(step.kind.displayName, value: step.appID ?? "Desktop")
+                        ComputerDetailRow(step.kind.displayName, value: step.appID ?? "Desktop")
                             .desktopUIFont(.caption)
                     }
                 }
@@ -133,7 +130,7 @@ struct ComputerUseView: View {
 
     @ViewBuilder
     private func controls(_ run: ComputerRun) -> some View {
-        HStack {
+        ComputerActionRow {
             if run.deviceID == workspace.deviceID && run.status == .awaitingPermission {
                 Button("Review app access…") {
                     allowRoutineActions = false
@@ -164,9 +161,8 @@ struct ComputerUseView: View {
     }
 
     private func reviewSheet(_ review: ComputerReview) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            PageHeading(review.title)
-            LabeledContent("Requested from", value: workspace.toolkitDeviceName(review.run.requestedByDeviceID))
+        ComputerReviewSheet(title: review.title) {
+            ComputerDetailRow("Requested from", value: workspace.toolkitDeviceName(review.run.requestedByDeviceID))
             Text(review.run.instruction).textSelection(.enabled)
             switch review {
             case .permission(let run):
@@ -199,7 +195,7 @@ struct ComputerUseView: View {
                     Text("Future tasks with this same requester, app list and capture setting may start while this Mac is unlocked. Desktop actions still require review.")
                         .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
-                HStack {
+                ComputerActionRow {
                     Button("Enable Accessibility…") { promptAccessibility() }
                     if run.includeImages {
                         Button("Enable Screen Recording…") { _ = CGRequestScreenCaptureAccess() }
@@ -207,57 +203,52 @@ struct ComputerUseView: View {
                 }
                 .desktopUIFont(.caption)
             case .action(let run, let action):
-                LabeledContent("Action", value: action.kind.displayName)
-                if let app = action.appID { LabeledContent("App", value: app) }
+                ComputerDetailRow("Action", value: action.kind.displayName)
+                if let app = action.appID { ComputerDetailRow("App", value: app) }
                 if let window = run.pendingReview?.windowTitle, !window.isEmpty {
-                    LabeledContent("Window", value: window)
+                    ComputerDetailRow("Window", value: window)
                 }
-                if let key = action.key { LabeledContent("Key", value: key) }
-                if let button = action.button { LabeledContent("Pointer button", value: button.rawValue.capitalized) }
-                if let count = action.clickCount { LabeledContent("Clicks", value: String(count)) }
+                if let key = action.key { ComputerDetailRow("Key", value: key) }
+                if let button = action.button { ComputerDetailRow("Pointer button", value: button.rawValue.capitalized) }
+                if let count = action.clickCount { ComputerDetailRow("Clicks", value: String(count)) }
                 if let label = run.pendingReview?.label, !label.isEmpty {
-                    LabeledContent("Control", value: label)
+                    ComputerDetailRow("Control", value: label)
                 } else if let role = run.pendingReview?.role {
-                    LabeledContent("Control", value: role)
+                    ComputerDetailRow("Control", value: role)
                 }
-                if let element = action.elementID { LabeledContent("Element reference", value: element) }
+                if let element = action.elementID { ComputerDetailRow("Element reference", value: element) }
                 if let x = action.x, let y = action.y {
-                    LabeledContent(action.kind == .drag ? "Start position" : "Window position", value: position(x, y))
+                    ComputerDetailRow(action.kind == .drag ? "Start position" : "Window position", value: position(x, y))
                 }
                 if let x = action.endX, let y = action.endY {
-                    LabeledContent("End position", value: position(x, y))
+                    ComputerDetailRow("End position", value: position(x, y))
                 }
                 if let dx = action.deltaX, let dy = action.deltaY {
-                    LabeledContent("Scroll direction and steps", value: "Horizontal \(dx), vertical \(dy)")
+                    ComputerDetailRow("Scroll direction and steps", value: "Horizontal \(dx), vertical \(dy)")
                 }
                 if let preview = relay.localPreview, preview.runID == run.id, preview.appID == action.appID,
                    let image = NSImage(data: preview.image) {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
-                        .frame(maxHeight: 160)
+                        .frame(maxWidth: .infinity, maxHeight: 160, alignment: .leading)
                         .accessibilityLabel("Last observed window")
                 }
                 if let text = action.text {
-                    ScrollView {
-                        Text(text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 160)
+                    Text(text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                 }
             }
-            HStack {
+        } actions: {
+            ComputerActionRow(alignment: .trailing) {
                 Button("Close") { self.review = nil }.keyboardShortcut(.cancelAction)
-                Spacer()
                 Button("Decline", role: .destructive) { decide(review, approved: false) }
                 Button("Allow") { decide(review, approved: true) }
                     .buttonStyle(.borderedProminent)
             }
             .disabled(relay.isSending)
         }
-        .padding(22)
-        .frame(width: 510)
     }
 
     private func approvalSummary(_ approval: ComputerRememberedApproval) -> String {
@@ -367,7 +358,7 @@ struct NewComputerUseSheet: View {
                     }
                 }
                 if isLocal {
-                    HStack {
+                    ComputerActionRow {
                         Button("Refresh running apps", action: refreshApps)
                         Button("Choose installed app…", action: chooseInstalledApp)
                     }
@@ -411,13 +402,12 @@ struct NewComputerUseSheet: View {
                     Text("Configure a local Ollama model in Settings to run desktop tasks.")
                         .desktopUIFont(.caption).foregroundStyle(.secondary)
                 }
+                if let error = workspace.computerRelay.error {
+                    Text(error).foregroundStyle(.orange).textSelection(.enabled)
+                }
             }
             .formStyle(.grouped)
-            if let error = workspace.computerRelay.error {
-                Text(error).foregroundStyle(.orange).textSelection(.enabled)
-            }
-            HStack {
-                Spacer()
+            ComputerActionRow(alignment: .trailing) {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Request app access") { submit() }
                     .buttonStyle(.borderedProminent)
@@ -425,7 +415,7 @@ struct NewComputerUseSheet: View {
             }
         }
         .padding(22)
-        .frame(width: 520)
+        .frame(idealWidth: 520, maxWidth: 600, idealHeight: 490, maxHeight: 680)
         .task {
             deviceID = workspace.deviceID
             refreshApps()
@@ -482,6 +472,74 @@ struct NewComputerUseSheet: View {
                 instruction: request.instruction, includeImages: request.includeImages, threadID: threadID, modelID: request.modelID
             ) { dismiss() }
         }
+    }
+}
+
+struct ComputerActionRow<Content: View>: View {
+    var alignment: HorizontalAlignment = .leading
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { content }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: alignment, spacing: 8) { content }
+        }
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+    }
+}
+
+struct ComputerDetailRow: View {
+    let label: String
+    let value: String
+
+    init(_ label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(label)
+                valueText
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label)
+                valueText
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var valueText: some View {
+        Text(value)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct ComputerReviewSheet<Content: View, Actions: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    PageHeading(title)
+                    content
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+            Divider()
+            actions.padding(.horizontal, 20).padding(.vertical, 12)
+        }
+        .frame(idealWidth: 510, maxWidth: 620, idealHeight: 470, maxHeight: 660)
     }
 }
 
