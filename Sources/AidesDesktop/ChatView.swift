@@ -45,61 +45,9 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 15) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(conversation.title).desktopUIFont(.headline)
-                    Text(conversation.role.rawValue.capitalized).desktopUIFont(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if conversation.archivedAt == nil {
-                    if let id = conversation.projectID,
-                       let project = workspace.state.projects.first(where: { $0.id == id }), project.directory != nil {
-                        Button("Propose code…") { proposalProject = project }
-                            .disabled(workspace.state.models.isEmpty)
-                    }
-                    Button("Review task…") { showsReview = true }
-                        .disabled(workspace.state.models.count < 2)
-                    Button {
-                        showsTask = true
-                    } label: {
-                        Label("Assign task", systemImage: "arrow.turn.down.right")
-                    }
-                    if conversation.role != .secretary {
-                        Button {
-                            showsArchive = true
-                        } label: {
-                            Image(systemName: "archivebox")
-                        }
-                        .help("Archive conversation")
-                        .accessibilityLabel("Archive conversation")
-                    }
-                }
-                Menu {
-                    if !tasks.isEmpty {
-                        Menu("Conversation workers") {
-                            ForEach(tasks.reversed()) { task in
-                                Button(task.title) { showWorker(task.id) }
-                            }
-                        }
-                    }
-                    if !desktopTasks.isEmpty {
-                        Button("View Computer Use runs") { showComputerUse() }
-                    }
-                    Button("Remember a note…") {
-                        sourceMessage = nil
-                        showsMemory = true
-                    }
-                    Button("Reply preferences…") { showsPreference = true }
-                    if conversation.archivedAt == nil {
-                        Button("Computer Use…") { showsComputerUse = true }
-                            .disabled(workspace.computerRelay.isUnavailable)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuIndicator(.hidden)
-                .help("Conversation options")
-                .accessibilityLabel("Conversation options")
+            ViewThatFits(in: .horizontal) {
+                conversationHeader(compact: false)
+                conversationHeader(compact: true)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
@@ -113,7 +61,12 @@ struct ChatView: View {
                     Text("Archived \(archivedAt.formatted(date: .abbreviated, time: .omitted))")
                         .desktopUIFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                     if let report = conversation.report, !report.isEmpty {
-                        Text(report).textSelection(.enabled)
+                        ScrollView {
+                            Text(report)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 110)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,6 +108,84 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showsPreference) {
             ReplyPreferenceSheet(workspace: workspace)
+        }
+    }
+
+    private func conversationHeader(compact: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(conversation.title)
+                    .desktopUIFont(.headline)
+                    .lineLimit(1)
+                    .help(conversation.title)
+                Text(conversation.role.rawValue.capitalized)
+                    .desktopUIFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 4)
+            if !compact { conversationActions(inMenu: false) }
+            Menu {
+                if compact, conversation.archivedAt == nil {
+                    conversationActions(inMenu: true)
+                    Divider()
+                }
+                if !tasks.isEmpty {
+                    Menu("Conversation workers") {
+                        ForEach(tasks.reversed()) { task in
+                            Button(task.title) { showWorker(task.id) }
+                        }
+                    }
+                }
+                if !desktopTasks.isEmpty {
+                    Button("View Computer Use runs") { showComputerUse() }
+                }
+                Button("Remember a note…") {
+                    sourceMessage = nil
+                    showsMemory = true
+                }
+                Button("Reply preferences…") { showsPreference = true }
+                if conversation.archivedAt == nil {
+                    Button("Computer Use…") { showsComputerUse = true }
+                        .disabled(workspace.computerRelay.isUnavailable)
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuIndicator(.hidden)
+            .help("Conversation options")
+            .accessibilityLabel("Conversation options")
+        }
+    }
+
+    @ViewBuilder
+    private func conversationActions(inMenu: Bool) -> some View {
+        if conversation.archivedAt == nil {
+            if let id = conversation.projectID,
+               let project = workspace.state.projects.first(where: { $0.id == id }), project.directory != nil {
+                Button("Propose code…") { proposalProject = project }
+                    .disabled(workspace.state.models.isEmpty)
+            }
+            Button("Review task…") { showsReview = true }
+                .disabled(workspace.state.models.count < 2)
+            Button {
+                showsTask = true
+            } label: {
+                Label("Assign task", systemImage: "arrow.turn.down.right")
+            }
+            if conversation.role != .secretary {
+                Button {
+                    showsArchive = true
+                } label: {
+                    if inMenu {
+                        Label("Archive conversation", systemImage: "archivebox")
+                    } else {
+                        Image(systemName: "archivebox")
+                    }
+                }
+                .help("Archive conversation")
+                .accessibilityLabel("Archive conversation")
+            }
         }
     }
 
@@ -288,36 +319,28 @@ struct ChatView: View {
                 ChatComposerInput(text: $draft, placeholder: prompt, fontSize: typography.contentSize, send: sendDraft)
                     .padding(.vertical, 4)
                     .padding(.horizontal, 3)
-                HStack {
-                    attachmentMenu
-                    if workspace.appshots.draft == nil, !workspace.fileRelay.manifest.grants.isEmpty {
-                        ToolkitFolderPicker(
-                            workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this message"
-                        )
-                        .labelsHidden()
-                        .fixedSize()
-                        .disabled(workspace.isWorking || !draftAttachments.isEmpty)
-                        .onChange(of: toolkitResourceID) { _, folder in
-                            if folder != nil { toolkitMailAccountID = nil }
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        attachmentMenu
+                        composerSelections
+                        Spacer(minLength: 8)
+                        sendButton
+                    }
+                    HStack {
+                        attachmentMenu
+                        if showsComposerSelections {
+                            Menu {
+                                composerSelections
+                            } label: {
+                                Label("Message options", systemImage: "slider.horizontal.3")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .help("Message options")
+                            .accessibilityLabel("Message options")
                         }
+                        Spacer(minLength: 8)
+                        sendButton
                     }
-                    if conversation.role != .secretary, workspace.appshots.draft == nil,
-                       workspace.state.settings.defaultModelID != nil {
-                        ToolkitMailAccountPicker(
-                            workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft…"
-                        )
-                        .disabled(workspace.isWorking || !draftAttachments.isEmpty)
-                        .onChange(of: toolkitMailAccountID) { _, account in
-                            if account != nil { toolkitResourceID = nil }
-                        }
-                    }
-                    Spacer()
-                    Button(action: sendDraft) {
-                        Label("Send", systemImage: "arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!canSendDraft)
                 }
             }
             .padding(12)
@@ -333,6 +356,46 @@ struct ChatView: View {
             .padding(.bottom, 16)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private var showsComposerSelections: Bool {
+        workspace.appshots.draft == nil &&
+            (!workspace.fileRelay.manifest.grants.isEmpty ||
+                (conversation.role != .secretary && workspace.state.settings.defaultModelID != nil))
+    }
+
+    @ViewBuilder
+    private var composerSelections: some View {
+        if workspace.appshots.draft == nil, !workspace.fileRelay.manifest.grants.isEmpty {
+            ToolkitFolderPicker(
+                workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this message"
+            )
+            .labelsHidden()
+            .fixedSize()
+            .disabled(workspace.isWorking || !draftAttachments.isEmpty)
+            .onChange(of: toolkitResourceID) { _, folder in
+                if folder != nil { toolkitMailAccountID = nil }
+            }
+        }
+        if conversation.role != .secretary, workspace.appshots.draft == nil,
+           workspace.state.settings.defaultModelID != nil {
+            ToolkitMailAccountPicker(
+                workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft…"
+            )
+            .disabled(workspace.isWorking || !draftAttachments.isEmpty)
+            .onChange(of: toolkitMailAccountID) { _, account in
+                if account != nil { toolkitResourceID = nil }
+            }
+        }
+    }
+
+    private var sendButton: some View {
+        Button(action: sendDraft) {
+            Label("Send", systemImage: "arrow.up")
+        }
+        .buttonStyle(.borderedProminent)
+        .keyboardShortcut(.return, modifiers: .command)
+        .disabled(!canSendDraft)
     }
 
     private var attachmentMenu: some View {
@@ -644,8 +707,12 @@ struct NewConversationSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             PageHeading("New conversation")
-            Form {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Title").desktopUIFont(.callout, weight: .medium)
                 TextField("Title", text: $title)
+                    .labelsHidden()
+                    .accessibilityLabel("Title")
+                    .textFieldStyle(.roundedBorder)
                 if defaultProjectID == nil {
                     Picker("Role", selection: $role) {
                         Text("Task").tag("task")

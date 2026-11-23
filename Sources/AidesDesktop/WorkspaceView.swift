@@ -80,42 +80,64 @@ struct WorkspaceView: View {
     }
 
     private var connectedView: some View {
-        HStack(spacing: 0) {
-            navigationRail
-            Divider()
-            if page == .conversations && showsConversationSidebar {
-                ConversationSidebar(
-                    conversations: workspace.state.threads,
-                    projects: workspace.state.projects,
-                    selection: $conversationID,
-                    newConversation: { showsNewConversation = true }
-                )
-                .frame(width: 244)
+        GeometryReader { geometry in
+            let hasSidebar = page == .conversations && showsConversationSidebar
+            let sidebarWidth = hasSidebar ? min(244, max(188, geometry.size.width * 0.24)) : 0
+            let detailWidth = geometry.size.width - 53 - sidebarWidth
+            let usesInlineInspector = detailWidth >= 880
+            HStack(spacing: 0) {
+                navigationRail
                 Divider()
-            }
-            VStack(spacing: 0) {
-                if let message = workspace.connectionError {
-                    HStack(spacing: 8) {
-                        Image(systemName: "wifi.slash")
-                        Text(message)
-                    }
-                    .desktopUIFont(.callout)
-                    .frame(maxWidth: .infinity)
-                    .padding(9)
-                    .background(.orange.opacity(0.13))
+                if hasSidebar {
+                    ConversationSidebar(
+                        conversations: workspace.state.threads,
+                        projects: workspace.state.projects,
+                        selection: $conversationID,
+                        newConversation: { showsNewConversation = true }
+                    )
+                    .frame(width: sidebarWidth)
                     Divider()
                 }
-                HStack(spacing: 0) {
-                    mainContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if let inspectorTask {
+                VStack(spacing: 0) {
+                    if let message = workspace.connectionError {
+                        HStack(spacing: 8) {
+                            Image(systemName: "wifi.slash")
+                            Text(message).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .desktopUIFont(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(9)
+                        .background(.orange.opacity(0.13))
                         Divider()
-                        WorkerInspector(workspace: workspace, task: inspectorTask) { inspectorTaskID = nil }
-                            .frame(width: 306)
+                    }
+                    HStack(spacing: 0) {
+                        mainContent
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .accessibilityHidden(!usesInlineInspector && inspectorTask != nil)
+                        if usesInlineInspector, let inspectorTask {
+                            Divider()
+                            workerInspector(inspectorTask)
+                                .frame(width: 326)
+                        }
+                    }
+                    .overlay(alignment: .trailing) {
+                        if !usesInlineInspector, let inspectorTask {
+                            ZStack(alignment: .trailing) {
+                                Rectangle()
+                                    .fill(.black.opacity(0.18))
+                                    .onTapGesture { inspectorTaskID = nil }
+                                    .accessibilityHidden(true)
+                                workerInspector(inspectorTask)
+                                    .frame(width: min(390, detailWidth - 24))
+                                    .frame(maxHeight: .infinity)
+                                    .background(Color(nsColor: .windowBackgroundColor))
+                                    .shadow(radius: 10)
+                            }
+                        }
                     }
                 }
+                .background(Color(nsColor: .windowBackgroundColor))
             }
-            .background(Color(nsColor: .windowBackgroundColor))
         }
         .onChange(of: workspace.state.threads.map(\.id), initial: true) { _, ids in
             if let conversationID, ids.contains(conversationID) { return }
@@ -129,6 +151,11 @@ struct WorkspaceView: View {
                 conversationID = workspace.state.threads.first { $0.role == .secretary }?.id
             }
         }
+    }
+
+    private func workerInspector(_ task: WorkItem) -> some View {
+        WorkerInspector(workspace: workspace, task: task) { inspectorTaskID = nil }
+            .onExitCommand { inspectorTaskID = nil }
     }
 
     private var inspectorTask: WorkItem? {
@@ -289,56 +316,61 @@ struct ConnectionView: View {
     @Bindable var workspace: Workspace
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 36, weight: .medium))
-                .foregroundStyle(Color.aidesAccent)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Connect to Aides").desktopUIFont(.largeTitle, weight: .semibold)
-                Text("Pair this Mac with the server that holds your conversations and projects.")
-                    .foregroundStyle(.secondary)
-            }
-            if LocalService.isBundled {
-                Button {
-                    Task { await workspace.startLocalService() }
-                } label: {
-                    Label("Start local server and pair", systemImage: "desktopcomputer")
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 36, weight: .medium))
+                        .foregroundStyle(Color.aidesAccent)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Connect to Aides").desktopUIFont(.largeTitle, weight: .semibold)
+                        Text("Pair this Mac with the server that holds your conversations and projects.")
+                            .foregroundStyle(.secondary)
+                    }
+                    if LocalService.isBundled {
+                        Button {
+                            Task { await workspace.startLocalService() }
+                        } label: {
+                            Label("Start local server and pair", systemImage: "desktopcomputer")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
+                        GridRow {
+                            Text("Server address")
+                            TextField("https://server.example.net", text: $workspace.address)
+                                .accessibilityLabel("Server address")
+                        }
+                        GridRow {
+                            Text("Device name")
+                            TextField("MacBook", text: $workspace.deviceName)
+                                .accessibilityLabel("Device name")
+                        }
+                        GridRow {
+                            Text("Pairing code")
+                            SecureField("Pairing code", text: $workspace.inviteCode)
+                                .accessibilityLabel("Pairing code")
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    HStack(spacing: 12) {
+                        Button("Pair device") { Task { await workspace.pair() } }
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(workspace.inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Reconnect") { Task { await workspace.reconnect() } }
+                        if workspace.isWorking { ProgressView().controlSize(.small) }
+                    }
+                    Text("Create a code in Settings on an already paired Mac, or run AidesServer invite on your server.")
+                        .desktopUIFont(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
+                .disabled(workspace.isWorking)
+                .frame(maxWidth: 455)
+                .padding(36)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 12) {
-                GridRow {
-                    Text("Server address")
-                    TextField("https://server.example.net", text: $workspace.address)
-                        .accessibilityLabel("Server address")
-                }
-                GridRow {
-                    Text("Device name")
-                    TextField("MacBook", text: $workspace.deviceName)
-                        .accessibilityLabel("Device name")
-                }
-                GridRow {
-                    Text("Pairing code")
-                    SecureField("Pairing code", text: $workspace.inviteCode)
-                        .accessibilityLabel("Pairing code")
-                }
-            }
-            .textFieldStyle(.roundedBorder)
-            HStack(spacing: 12) {
-                Button("Pair device") { Task { await workspace.pair() } }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(workspace.inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Reconnect") { Task { await workspace.reconnect() } }
-                if workspace.isWorking { ProgressView().controlSize(.small) }
-            }
-            Text("Create a code in Settings on an already paired Mac, or run AidesServer invite on your server.")
-                .desktopUIFont(.callout)
-                .foregroundStyle(.secondary)
         }
-        .disabled(workspace.isWorking)
-        .frame(maxWidth: 455)
-        .padding(36)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -354,8 +386,10 @@ struct PageHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title).desktopUIFont(.title2, weight: .semibold)
+                .fixedSize(horizontal: false, vertical: true)
             if let description {
                 Text(description).desktopUIFont(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
