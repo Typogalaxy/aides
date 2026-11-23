@@ -97,6 +97,14 @@ struct ChatMarkdownView: View {
         }
     }
 
+    private var inlineCodeInset: CGFloat { 4 + 1 / displayScale }
+
+    private var inlineCodeGap: Text {
+        // Reserve advance for the background overhang and the visible gap beside it.
+        let width = inlineCodeInset + max(3, bodySize * 0.18)
+        return Text(verbatim: "\u{2002}").font(.system(size: width * 2))
+    }
+
     private func inlineText(_ source: AttributedString) -> some View {
         let codeRuns = source.runs.filter { $0.inlinePresentationIntent?.contains(.code) == true }
         return Group {
@@ -104,7 +112,7 @@ struct ChatMarkdownView: View {
                 Text(source)
             } else {
                 textWithMarkedCode(source, codeRuns: codeRuns)
-                    .textRenderer(InlineCodeBackground(horizontalInset: 4 + 1 / displayScale))
+                    .textRenderer(InlineCodeBackground(horizontalInset: inlineCodeInset))
             }
         }
         .lineSpacing(4)
@@ -118,10 +126,12 @@ struct ChatMarkdownView: View {
             if start < run.range.lowerBound {
                 append(Text(AttributedString(source[start..<run.range.lowerBound])), to: &text)
             }
+            if run.range.lowerBound > source.startIndex { append(inlineCodeGap, to: &text) }
             let code = Text(AttributedString(source[run.range]))
                 .font(.system(size: codeSize, design: .monospaced))
                 .customAttribute(InlineCode())
             append(code, to: &text)
+            if run.range.upperBound < source.endIndex { append(inlineCodeGap, to: &text) }
             start = run.range.upperBound
         }
         if start < source.endIndex {
