@@ -24,43 +24,36 @@ struct NewCodeProposalSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            PageHeading("Propose code changes", description: "Select the exact files the model can see. Review each proposed change before applying it.")
-            Form {
-                LabeledContent("Project", value: project.name)
-                TextField("Title", text: $title)
-                TextField("Instructions", text: $instruction, axis: .vertical).lineLimit(3...6)
-                TextField("Relative paths, one per line", text: $paths, axis: .vertical).lineLimit(3...6)
-                Picker("Model", selection: $selection) {
-                    Text("Choose a model").tag(UUID?.none)
-                    ForEach(workspace.state.models) { model in
-                        Text(model.name).tag(Optional(model.id))
+        WorkFormSheet("Propose code changes", description: "Select the exact files the model can see. Review each proposed change before applying it.") {
+            WorkField(label: "Project", value: project.name)
+            TextField("Title", text: $title)
+            TextField("Instructions", text: $instruction, axis: .vertical).lineLimit(3...6)
+            TextField("Relative paths, one per line", text: $paths, axis: .vertical).lineLimit(3...6)
+            Picker("Model", selection: $selection) {
+                Text("Choose a model").tag(UUID?.none)
+                ForEach(workspace.state.models) { model in
+                    Text(model.name).tag(Optional(model.id))
+                }
+            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Create proposal") {
+                guard let selection else { return }
+                Task {
+                    let request = CodeProposalRequest(
+                        title: title.trimmed, instruction: instruction.trimmed, modelID: selection,
+                        projectID: project.id, threadID: threadID, paths: filePaths
+                    )
+                    if let id = await workspace.createCodeProposal(request) {
+                        dismiss()
+                        onCreated(id)
                     }
                 }
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Create proposal") {
-                    guard let selection else { return }
-                    Task {
-                        let request = CodeProposalRequest(
-                            title: title.trimmed, instruction: instruction.trimmed, modelID: selection,
-                            projectID: project.id, threadID: threadID, paths: filePaths
-                        )
-                        if let id = await workspace.createCodeProposal(request) {
-                            dismiss()
-                            onCreated(id)
-                        }
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmed.isEmpty || instruction.trimmed.isEmpty || !validPaths || selection == nil || workspace.isWorking)
-            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(title.trimmed.isEmpty || instruction.trimmed.isEmpty || !validPaths || selection == nil || workspace.isWorking)
         }
-        .padding(22)
-        .frame(width: 500)
     }
 }
 
@@ -85,12 +78,15 @@ struct CodeProposalDetails: View {
                 } else if !details.changes.isEmpty {
                     changes(details)
                 } else if let summary = details.summary {
-                    Text(summary).desktopUIFont(.callout).textSelection(.enabled)
+                    summaryText(summary)
                 } else {
                     sources(details.files)
                 }
             } else if let loadError {
-                Text(loadError).desktopUIFont(.callout).foregroundStyle(.secondary)
+                Text(loadError)
+                    .desktopUIFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button("Retry") { Task { await load() } }
             } else {
                 ProgressView("Loading files…").controlSize(.small)
@@ -122,7 +118,10 @@ struct CodeProposalDetails: View {
                         Text("New file").desktopUIFont(.caption).foregroundStyle(.secondary)
                     }
                 } label: {
-                    Text(file.path).desktopUIFont(.caption, design: .monospaced).textSelection(.enabled)
+                    Text(file.path)
+                        .desktopUIFont(.caption, design: .monospaced)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
             }
         }
@@ -132,16 +131,27 @@ struct CodeProposalDetails: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Proposed changes").desktopUIFont(.headline)
             if let summary = details.summary {
-                Text(summary).desktopUIFont(.callout).textSelection(.enabled)
+                summaryText(summary)
             }
-            Picker("File", selection: $selection) {
-                Text("Select a file").tag(String?.none)
+            Menu {
                 ForEach(details.changes) { change in
                     let suffix = details.appliedPaths.contains(change.path) ? " · Applied" : ""
-                    Text(change.path + suffix).tag(Optional(change.path))
+                    Button {
+                        selection = change.path
+                    } label: {
+                        if change.path == selection {
+                            Label(change.path + suffix, systemImage: "checkmark")
+                        } else {
+                            Text(change.path + suffix)
+                        }
+                    }
                 }
+            } label: {
+                Label("Choose file", systemImage: "doc.text")
             }
+            .fixedSize()
             if let change = details.changes.first(where: { $0.path == selection }) {
+                WorkField(label: "Path", value: change.path, monospaced: true)
                 if let previous = change.originalContents {
                     DisclosureGroup("Original text") { code(previous) }
                 } else {
@@ -161,6 +171,13 @@ struct CodeProposalDetails: View {
         }
     }
 
+    private func summaryText(_ text: String) -> some View {
+        Text(text)
+            .desktopUIFont(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+
     private func code(_ text: String) -> some View {
         ScrollView([.horizontal, .vertical]) {
             Text(text.isEmpty ? "(Empty file)" : text)
@@ -169,6 +186,7 @@ struct CodeProposalDetails: View {
                 .fixedSize(horizontal: true, vertical: true)
                 .padding(8)
         }
+        .frame(maxWidth: .infinity)
         .frame(minHeight: 85, idealHeight: 160, maxHeight: 230)
         .background(.quaternary.opacity(0.25), in: .rect(cornerRadius: 7))
     }

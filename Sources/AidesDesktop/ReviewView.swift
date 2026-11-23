@@ -13,58 +13,51 @@ struct NewReviewSheet: View {
     @ViewState private var modelIDs = Set<UUID>()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            PageHeading("Review a complex task", description: "Each selected model interprets the same task independently. Compare its assumptions before assigning the work.")
-            Form {
-                TextField("Title", text: $title)
-                TextField("Task instructions", text: $instruction, axis: .vertical)
-                    .lineLimit(3...7)
-                Section("Select two to four models") {
-                    ForEach(workspace.state.models) { model in
-                        Toggle(isOn: Binding(
-                            get: { modelIDs.contains(model.id) },
-                            set: { selected in
-                                if selected {
-                                    modelIDs.insert(model.id)
-                                } else {
-                                    modelIDs.remove(model.id)
-                                }
-                            }
-                        )) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(model.name)
-                                Text(model.kindLabel).desktopUIFont(.caption).foregroundStyle(.secondary)
+        WorkFormSheet("Review a complex task", description: "Each selected model interprets the same task independently. Compare its assumptions before assigning the work.") {
+            TextField("Title", text: $title)
+            TextField("Task instructions", text: $instruction, axis: .vertical)
+                .lineLimit(3...7)
+            Section("Select two to four models") {
+                ForEach(workspace.state.models) { model in
+                    Toggle(isOn: Binding(
+                        get: { modelIDs.contains(model.id) },
+                        set: { selected in
+                            if selected {
+                                modelIDs.insert(model.id)
+                            } else {
+                                modelIDs.remove(model.id)
                             }
                         }
-                        .disabled(modelIDs.count >= 4 && !modelIDs.contains(model.id))
+                    )) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.name)
+                            Text(model.kindLabel).desktopUIFont(.caption).foregroundStyle(.secondary)
+                        }
                     }
+                    .disabled(modelIDs.count >= 4 && !modelIDs.contains(model.id))
                 }
             }
             Text("Cloud models require approval before receiving the instructions.")
                 .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Start review") {
-                    Task {
-                        let selected = workspace.state.models.filter { modelIDs.contains($0.id) }.map(\.id)
-                        if let id = await workspace.createReview(ReviewRequest(
-                            title: title.trimmed, instruction: instruction.trimmed, modelIDs: selected,
-                            threadID: threadID, projectID: projectID
-                        )) {
-                            dismiss()
-                            onCreated(id)
-                        }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Start review") {
+                Task {
+                    let selected = workspace.state.models.filter { modelIDs.contains($0.id) }.map(\.id)
+                    if let id = await workspace.createReview(ReviewRequest(
+                        title: title.trimmed, instruction: instruction.trimmed, modelIDs: selected,
+                        threadID: threadID, projectID: projectID
+                    )) {
+                        dismiss()
+                        onCreated(id)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmed.isEmpty || instruction.trimmed.isEmpty || modelIDs.count < 2 || workspace.isWorking)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(title.trimmed.isEmpty || instruction.trimmed.isEmpty || modelIDs.count < 2 || workspace.isWorking)
         }
-        .padding(22)
-        .frame(width: 510)
     }
 }
 
@@ -85,7 +78,10 @@ struct ReviewDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text(review.instruction).desktopUIFont(.callout).textSelection(.enabled)
+            Text(review.instruction)
+                .desktopUIFont(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
             Divider()
             round("Independent interpretations", tasks: firstRound)
             if !followUp.isEmpty {
@@ -121,15 +117,23 @@ struct ReviewDetails: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(workspace.state.models.first { $0.id == task.modelID }?.name ?? task.title)
                         .desktopUIFont(.callout, weight: .medium)
+                        .fixedSize(horizontal: false, vertical: true)
                     TaskStatusView(task: task)
                     if task.status == .waitingApproval {
                         ApprovalDetails(workspace: workspace, task: task)
                     }
                     if let error = task.error {
-                        Text(error).desktopUIFont(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(error)
+                            .desktopUIFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
                     if let result = task.result, !result.isEmpty {
-                        Text(result).desktopUIFont(.callout).textSelection(.enabled)
+                        Text(result)
+                            .desktopUIFont(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
                     if task.status == .waiting {
                         Button("Resume run") { Task { await workspace.resume(task.id) } }
@@ -153,23 +157,22 @@ struct ApprovalDetails: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Cloud approval").desktopUIFont(.headline)
             if let provider = workspace.state.models.first(where: { $0.id == task.modelID }) {
-                LabeledContent("Provider", value: provider.kindLabel)
+                WorkField(label: "Provider", value: provider.kindLabel)
             }
             if let project = workspace.state.projects.first(where: { $0.id == task.projectID }) {
-                LabeledContent("Project", value: project.name)
+                WorkField(label: "Project", value: project.name)
             }
             Text(includesFiles ? "The following instructions and the listed file contents will be sent to the provider." : "The following task instructions will be sent to the provider.")
                 .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             Text(task.instruction)
-                .textSelection(.enabled)
                 .desktopUIFont(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
             if let memories = task.sharedMemories, !memories.isEmpty {
                 Text("Saved information to send").desktopUIFont(.callout, weight: .semibold)
                 ForEach(memories) { memory in
-                    Text("\(memory.key): \(memory.value)")
-                        .desktopUIFont(.callout)
-                        .textSelection(.enabled)
+                    WorkField(label: memory.key, value: memory.value)
                 }
             }
             HStack {

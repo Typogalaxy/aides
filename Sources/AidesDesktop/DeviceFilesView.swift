@@ -28,17 +28,22 @@ struct DeviceFilesView: View {
                     Button("Refresh") { Task { await relay.refresh() } }
                 }
                 ForEach(relay.manifest.grants) { grant in
-                    HStack {
+                    WorkRow {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(grant.name).desktopUIFont(.body, weight: .medium)
+                            Text(grant.name)
+                                .desktopUIFont(.body, weight: .medium)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text("\(deviceName(grant.deviceID)) · \(accessLabel(grant))")
                                 .desktopUIFont(.caption)
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        Spacer()
-                        Button("File action…") { selectedGrant = grant }
-                        if grant.deviceID == workspace.deviceID {
-                            Button("Revoke", role: .destructive) { revoking = grant }
+                    } actions: {
+                        HStack(spacing: 8) {
+                            Button("File action…") { selectedGrant = grant }
+                            if grant.deviceID == workspace.deviceID {
+                                Button("Revoke", role: .destructive) { revoking = grant }
+                            }
                         }
                     }
                     .padding(.vertical, 3)
@@ -55,23 +60,25 @@ struct DeviceFilesView: View {
                 }
                 ForEach(relay.manifest.jobs.reversed()) { request in
                     VStack(alignment: .leading, spacing: 5) {
-                        HStack {
+                        WorkRow {
                             Text(request.operation.title).desktopUIFont(.body, weight: .medium)
-                            Spacer()
+                        } actions: {
                             Text(request.status.capitalized).desktopUIFont(.caption).foregroundStyle(.secondary)
                         }
                         Text("\(deviceName(request.deviceID)) · \(request.grantName) / \(request.path)")
                             .desktopUIFont(.caption)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                         if let destination = request.destination {
-                            Text("To \(destination)").desktopUIFont(.caption).textSelection(.enabled)
+                            WorkField(label: "Destination", value: destination, monospaced: true)
                         }
                         if let result = request.result {
                             DisclosureGroup("Result") {
                                 ScrollView {
                                     Text(result)
                                         .desktopUIFont(.caption, design: .monospaced)
+                                        .fixedSize(horizontal: false, vertical: true)
                                         .textSelection(.enabled)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -123,7 +130,9 @@ struct DeviceFilesView: View {
         DisclosureGroup(label) {
             ScrollView {
                 Text(text.isEmpty ? "(Empty)" : text)
-                    .monospaced().textSelection(.enabled)
+                    .desktopCodeFont()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 120)
@@ -132,9 +141,11 @@ struct DeviceFilesView: View {
 
     private func pendingMove(_ request: DeviceFileJob) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            LabeledContent("Folder", value: request.grantName)
-            LabeledContent("Path", value: request.path)
-            if let destination = request.destination { LabeledContent("Destination", value: destination) }
+            WorkField(label: "Folder", value: request.grantName)
+            WorkField(label: "Path", value: request.path, monospaced: true)
+            if let destination = request.destination {
+                WorkField(label: "Destination", value: destination, monospaced: true)
+            }
             if let expected = request.expectedText { reviewText("Expected text", expected) }
             if let text = request.text { reviewText("New text", text) }
             HStack {
@@ -174,37 +185,30 @@ private struct ShareFolderSheet: View {
     @ViewState private var allowWrites = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PageHeading("Share a local folder")
-            Text(folder.path).desktopUIFont(.caption, design: .monospaced).textSelection(.enabled)
-            Form {
-                TextField("Name on other Macs", text: $name)
-                Toggle("Allow move requests", isOn: $allowMoves)
-                Toggle("Allow text write requests", isOn: $allowWrites)
-            }
+        WorkFormSheet("Share a local folder") {
+            WorkField(label: "Local directory", value: folder.path, monospaced: true)
+            TextField("Name on other Macs", text: $name)
+            Toggle("Allow move requests", isOn: $allowMoves)
+            Toggle("Allow text write requests", isOn: $allowWrites)
             Text("Paired devices can list the directory or request text files. File changes require approval on this Mac. The folder’s local path stays on this Mac.")
                 .desktopUIFont(.caption)
                 .foregroundStyle(.secondary)
             if let error = relay.error {
                 Text(error).desktopUIFont(.callout).foregroundStyle(.orange)
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Share folder") {
-                    Task {
-                        if await relay.grantAccess(
-                            to: folder, displayName: name.trimmed, allowMoves: allowMoves, allowWrites: allowWrites
-                        ) { dismiss() }
-                    }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Share folder") {
+                Task {
+                    if await relay.grantAccess(
+                        to: folder, displayName: name.trimmed, allowMoves: allowMoves, allowWrites: allowWrites
+                    ) { dismiss() }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmed.isEmpty || relay.isWorking)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(name.trimmed.isEmpty || relay.isWorking)
         }
-        .padding(22)
-        .frame(width: 485)
         .onAppear { name = folder.lastPathComponent }
     }
 }
@@ -234,49 +238,42 @@ private struct FileJobSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PageHeading("Request a file action")
-            Form {
-                LabeledContent("Shared folder", value: grant.name)
-                Picker("Action", selection: $operation) {
-                    ForEach(operations) { action in Text(action.title).tag(action) }
-                }
-                TextField(operation == .list ? "Relative path (optional)" : "Relative path", text: $path)
-                if operation == .move {
-                    TextField("Destination relative path", text: $destination)
-                }
-                if operation == .replace {
-                    TextField("Expected text", text: $expectedText, axis: .vertical).lineLimit(2...5)
-                }
-                if operation.writesText {
-                    TextField("New text", text: $text, axis: .vertical).lineLimit(2...5)
-                }
+        WorkFormSheet("Request a file action") {
+            WorkField(label: "Shared folder", value: grant.name)
+            Picker("Action", selection: $operation) {
+                ForEach(operations) { action in Text(action.title).tag(action) }
+            }
+            TextField(operation == .list ? "Relative path (optional)" : "Relative path", text: $path)
+            if operation == .move {
+                TextField("Destination relative path", text: $destination)
+            }
+            if operation == .replace {
+                TextField("Expected text", text: $expectedText, axis: .vertical).lineLimit(2...5)
+            }
+            if operation.writesText {
+                TextField("New text", text: $text, axis: .vertical).lineLimit(2...5)
             }
             if let error = relay.error {
                 Text(error).desktopUIFont(.callout).foregroundStyle(.orange)
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Send request") {
-                    let request = FileJobRequest(
-                        grantID: grant.id, operation: operation, path: path.trimmed,
-                        destination: operation == .move ? destination.trimmed : nil,
-                        text: operation.writesText ? text : nil,
-                        expectedText: operation == .replace ? expectedText : nil
-                    )
-                    let invocationID = lastSubmission.flatMap { $0.request == request ? $0.id : nil } ?? UUID()
-                    lastSubmission = (request, invocationID)
-                    Task {
-                        if await relay.submit(request, invocationID: invocationID) { dismiss() }
-                    }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Send request") {
+                let request = FileJobRequest(
+                    grantID: grant.id, operation: operation, path: path.trimmed,
+                    destination: operation == .move ? destination.trimmed : nil,
+                    text: operation.writesText ? text : nil,
+                    expectedText: operation == .replace ? expectedText : nil
+                )
+                let invocationID = lastSubmission.flatMap { $0.request == request ? $0.id : nil } ?? UUID()
+                lastSubmission = (request, invocationID)
+                Task {
+                    if await relay.submit(request, invocationID: invocationID) { dismiss() }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!isValid || relay.isWorking)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!isValid || relay.isWorking)
         }
-        .padding(22)
-        .frame(width: 455)
     }
 }
