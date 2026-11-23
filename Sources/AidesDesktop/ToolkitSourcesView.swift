@@ -12,7 +12,7 @@ struct ToolkitSourcesView: View {
     var body: some View {
         Form {
             Section("Web sources") {
-                HStack {
+                SettingsActions {
                     Button("Add source…") { showsAdd = true }
                         .disabled(sources.count >= 10)
                     Button("Refresh") { Task { await refresh() } }
@@ -23,9 +23,8 @@ struct ToolkitSourcesView: View {
                 }
                 ForEach(sources) { source in
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(source.name).desktopUIFont(.body, weight: .medium)
-                            Spacer()
+                        Text(source.name).desktopUIFont(.body, weight: .medium)
+                        SettingsActions {
                             Button(source.paused ? "Resume" : "Pause") {
                                 Task { await pause(source) }
                             }
@@ -122,11 +121,14 @@ private struct AddToolkitSourceSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PageHeading("Add source")
-            Form {
-                TextField("Name", text: $name)
-                TextField("Public HTTPS URL", text: $url)
+        SettingsFormSheet(title: "Add source", idealWidth: 470) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsField("Name") {
+                    TextField("", text: $name)
+                }
+                SettingsField("Public HTTPS URL") {
+                    TextField("", text: $url)
+                }
                 Picker("Type", selection: $kind) {
                     Text("RSS or Atom").tag(SourceKind.feed)
                     Text("Web page").tag(SourceKind.page)
@@ -135,18 +137,13 @@ private struct AddToolkitSourceSheet: View {
             }
             .disabled(busy)
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Add source") { Task { await add() } }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(busy || name.trimmed.isEmpty || URL(string: url.trimmed)?.scheme != "https")
-            }
-            .disabled(busy)
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy)
+            Button("Add source") { Task { await add() } }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(busy || name.trimmed.isEmpty || URL(string: url.trimmed)?.scheme != "https")
         }
-        .padding(22)
-        .frame(width: 470)
     }
 
     private func add() async {

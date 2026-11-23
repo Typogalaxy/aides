@@ -56,7 +56,7 @@ struct ToolkitGitHubView: View {
                     if items.isEmpty { Text("No results.").foregroundStyle(.secondary) }
                     ForEach(items) { item in
                         VStack(alignment: .leading, spacing: 5) {
-                            LabeledContent(item.title, value: item.state)
+                            SettingsDetail(item.title, value: item.state)
                             if let date = item.updatedAt {
                                 Text(date.formatted(date: .abbreviated, time: .shortened))
                                     .desktopUIFont(.caption)

@@ -34,8 +34,10 @@ struct ToolkitCommandsView: View {
                 if runs.isEmpty { Text("No recorded command runs.").foregroundStyle(.secondary) }
                 ForEach(runs, id: \.id) { run in
                     VStack(alignment: .leading, spacing: 8) {
-                        LabeledContent(commands.first { $0.id == run.commandID }?.label ?? run.commandID,
-                                       value: run.status.rawValue.capitalized)
+                        SettingsDetail(
+                            commands.first { $0.id == run.commandID }?.label ?? run.commandID,
+                            value: run.status.rawValue.capitalized
+                        )
                         if let exitCode = run.exitCode {
                             LabeledContent("Exit code", value: String(exitCode))
                         }

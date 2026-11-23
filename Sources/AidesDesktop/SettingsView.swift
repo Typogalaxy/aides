@@ -13,12 +13,13 @@ struct SettingsView: View {
             PageHeading("Settings")
                 .padding(20)
             Divider()
-            Picker("Settings sections", selection: $pane) {
-                ForEach(SettingsPane.allCases, id: \.self) { pane in Text(pane.rawValue).tag(pane) }
+            ViewThatFits(in: .horizontal) {
+                sectionPicker
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize(horizontal: true, vertical: false)
+                sectionPicker.pickerStyle(.menu)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 640)
             .padding(16)
 
             switch pane {
@@ -28,6 +29,13 @@ struct SettingsView: View {
             case .toolkit: ToolkitSettingsView(workspace: workspace, pane: $toolkitPane)
             case .appearance: AppearanceSettingsView()
             case .application: ApplicationSettingsView(updates: updates)
+            }
+        }
+    }
+    private var sectionPicker: some View {
+        Picker("Settings section", selection: $pane) {
+            ForEach(SettingsPane.allCases, id: \.self) { pane in
+                Text(pane.rawValue).tag(pane)
             }
         }
     }
@@ -140,51 +148,57 @@ private struct AddModelSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            PageHeading("Add model")
-            Form {
-                TextField("Display name", text: $name)
-                Picker("Provider", selection: $kind) {
+        SettingsFormSheet(title: "Add model") {
+            SettingsField("Display name") {
+                TextField("", text: $name)
+            }
+            SettingsField("Provider") {
+                Picker("", selection: $kind) {
                     ForEach(providers, id: \.self) { provider in Text(provider.label).tag(provider) }
                 }
-                if kind != .mock {
-                    TextField("Model identifier", text: $model)
-                    if kind == .codex || kind == .claudeCode {
-                        Text("Sign in to the official CLI on the server Mac. Set its absolute path using \(kind == .codex ? "AIDES_CODEX_PATH" : "AIDES_CLAUDE_CODE_PATH") before starting the server.")
-                            .desktopUIFont(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        TextField("Endpoint", text: $endpoint)
+                .labelsHidden()
+            }
+            if kind != .mock {
+                SettingsField("Model identifier") {
+                    TextField("", text: $model)
+                }
+                if kind == .codex || kind == .claudeCode {
+                    let executablePath = kind == .codex ? "AIDES_CODEX_PATH" : "AIDES_CLAUDE_CODE_PATH"
+                    Text("Sign in to the official CLI on the server Mac. Set its absolute path using \(executablePath) before starting the server.")
+                        .desktopUIFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    SettingsField("Endpoint") {
+                        TextField("", text: $endpoint)
                     }
                 }
-                if kind.needsAPIKey {
-                    SecureField("API key", text: $key)
+            }
+            if kind.needsAPIKey {
+                SettingsField("API key") {
+                    SecureField("", text: $key)
                 }
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save model") {
-                    Task {
-                        let identifier = model.trimmed
-                        let saved = await workspace.addModel(ModelRequest(
-                            name: name.trimmed, kind: kind.rawValue, endpoint: endpoint.trimmed,
-                            model: kind == .mock ? "mock" : identifier,
-                            apiKey: kind.needsAPIKey && !key.trimmed.isEmpty ? key.trimmed : nil
-                        ))
-                        if saved {
-                            key = ""
-                            dismiss()
-                        }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Save model") {
+                Task {
+                    let identifier = model.trimmed
+                    let saved = await workspace.addModel(ModelRequest(
+                        name: name.trimmed, kind: kind.rawValue, endpoint: endpoint.trimmed,
+                        model: kind == .mock ? "mock" : identifier,
+                        apiKey: kind.needsAPIKey && !key.trimmed.isEmpty ? key.trimmed : nil
+                    ))
+                    if saved {
+                        key = ""
+                        dismiss()
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(workspace.isWorking || name.trimmed.isEmpty || !providerIsConfigured)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(workspace.isWorking || name.trimmed.isEmpty || !providerIsConfigured)
         }
-        .padding(22)
-        .frame(width: 510)
         .onChange(of: kind) { _, value in
             endpoint = value.suggestedEndpoint
             model = ""
@@ -208,7 +222,7 @@ private struct DeviceSettingsView: View {
     var body: some View {
         Form {
             Section("Server") {
-                LabeledContent("Address", value: workspace.address).textSelection(.enabled)
+                SettingsDetail("Address", value: workspace.address)
                 Button("Forget this connection") {
                     Task { await workspace.forgetConnection() }
                 }
@@ -228,8 +242,12 @@ private struct DeviceSettingsView: View {
                 }
                 Button("Create pairing code") { Task { await workspace.createInvite() } }
                 if let code = workspace.newInvite {
-                    LabeledContent("One-time code") {
-                        Text(code).desktopUIFont(.body, design: .monospaced).textSelection(.enabled)
+                    SettingsField("One-time code") {
+                        Text(code)
+                            .desktopUIFont(.body, design: .monospaced)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .accessibilityValue(code)
                     }
                 }
             }
@@ -258,7 +276,7 @@ private struct MemorySettingsView: View {
     var body: some View {
         Form {
             Section("Saved memory") {
-                HStack {
+                SettingsActions {
                     Button("Add memory…") { editor = MemoryEditorEntry(record: nil) }
                     Button("Refresh") { Task { await workspace.refreshMemories() } }
                 }
@@ -267,9 +285,8 @@ private struct MemorySettingsView: View {
                 }
                 ForEach(workspace.memories) { record in
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(record.key).desktopUIFont(.body, weight: .medium)
-                            Spacer()
+                        Text(record.key).desktopUIFont(.body, weight: .medium)
+                        SettingsActions {
                             Button("Edit") { editor = MemoryEditorEntry(record: record) }
                             Button("Delete", role: .destructive) { deleting = record }
                         }
@@ -328,12 +345,15 @@ struct MemoryEditor: View {
     @ViewState private var sensitivity = "localOnly"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            PageHeading(existing == nil ? "Add memory" : "Edit memory")
-            Form {
-                TextField("Name", text: $key).disabled(existing != nil)
-                TextField("Value", text: $value, axis: .vertical).lineLimit(3...7)
-                Picker("Scope", selection: $scope) {
+        SettingsFormSheet(title: existing == nil ? "Add memory" : "Edit memory", idealWidth: 470) {
+            SettingsField("Name") {
+                TextField("", text: $key).disabled(existing != nil)
+            }
+            SettingsField("Value") {
+                TextField("", text: $value, axis: .vertical).lineLimit(3...7)
+            }
+            SettingsField("Scope") {
+                Picker("", selection: $scope) {
                     Text("Global").tag("global")
                     ForEach(workspace.state.projects) { project in
                         Text(project.name).tag("project:\(project.id.uuidString.lowercased())")
@@ -342,30 +362,30 @@ struct MemoryEditor: View {
                         Text(area.title).tag("area:\(area.id.uuidString.lowercased())")
                     }
                 }
+                .labelsHidden()
                 .disabled(existing != nil)
-                Picker("Sharing", selection: $sensitivity) {
+            }
+            SettingsField("Sharing") {
+                Picker("", selection: $sensitivity) {
                     Text("Local only").tag("localOnly")
                     Text("Eligible for approved cloud use").tag("cloudAllowed")
                 }
+                .labelsHidden()
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save memory") {
-                    Task {
-                        if await workspace.saveMemory(MemoryRequest(
-                            key: key.trimmed, value: value.trimmed, scope: scope, sensitivity: sensitivity,
-                            sourceMessageID: sourceMessage?.id
-                        )) { dismiss() }
-                    }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Save memory") {
+                Task {
+                    if await workspace.saveMemory(MemoryRequest(
+                        key: key.trimmed, value: value.trimmed, scope: scope, sensitivity: sensitivity,
+                        sourceMessageID: sourceMessage?.id
+                    )) { dismiss() }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(key.trimmed.isEmpty || value.trimmed.isEmpty || workspace.isWorking)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(key.trimmed.isEmpty || value.trimmed.isEmpty || workspace.isWorking)
         }
-        .padding(22)
-        .frame(width: 470)
         .onAppear {
             if let existing {
                 key = existing.key

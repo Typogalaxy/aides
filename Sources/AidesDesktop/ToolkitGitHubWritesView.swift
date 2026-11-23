@@ -13,7 +13,7 @@ struct ToolkitGitHubWritesSection: View {
 
     var body: some View {
         Section("Issue and pull request approvals") {
-            HStack {
+            SettingsActions {
                 if repository?.allowedWrites?.isEmpty == false {
                     Button("Prepare request…") { showsCreate = true }
                 }
@@ -87,34 +87,37 @@ private struct AddToolkitGitHubWriteSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            PageHeading("Prepare GitHub request")
-            Form {
-                LabeledContent("Repository", value: "\(repository.owner)/\(repository.name)")
+        SettingsFormSheet(title: "Prepare GitHub request", idealWidth: 530) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsDetail("Repository", value: "\(repository.owner)/\(repository.name)")
                 Picker("Create", selection: $kind) {
                     ForEach(repository.allowedWrites ?? [], id: \.self) { entry in
                         Text(entry.title).tag(entry)
                     }
                 }
-                TextField("Title", text: $title)
-                TextField("Description", text: $text, axis: .vertical).lineLimit(5...12)
+                SettingsField("Title") {
+                    TextField("", text: $title)
+                }
+                SettingsField("Description") {
+                    TextField("", text: $text, axis: .vertical).lineLimit(5...12)
+                }
                 if kind == .pullRequest {
-                    TextField("Head branch", text: $head)
-                    TextField("Base branch", text: $base)
+                    SettingsField("Head branch") {
+                        TextField("", text: $head)
+                    }
+                    SettingsField("Base branch") {
+                        TextField("", text: $base)
+                    }
                 }
             }
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save for review") { Task { await prepare() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(title.trimmed.isEmpty || (kind == .pullRequest && (head.trimmed.isEmpty || base.trimmed.isEmpty)))
-            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Save for review") { Task { await prepare() } }
+                .buttonStyle(.borderedProminent)
+                .disabled(title.trimmed.isEmpty || (kind == .pullRequest && (head.trimmed.isEmpty || base.trimmed.isEmpty)))
         }
         .disabled(busy)
-        .padding(22)
-        .frame(width: 530)
         .onAppear {
             if let first = repository.allowedWrites?.first { kind = first }
         }
@@ -159,36 +162,29 @@ private struct ToolkitGitHubWriteReviewSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            PageHeading(entry.request.kind.title)
-            LabeledContent("Repository", value: "\(entry.repositoryOwner)/\(entry.repositoryName)")
-            LabeledContent("Title", value: entry.request.title)
+        SettingsFormSheet(title: entry.request.kind.title, idealWidth: 540) {
+            SettingsDetail("Repository", value: "\(entry.repositoryOwner)/\(entry.repositoryName)")
+            SettingsDetail("Title", value: entry.request.title)
             if let head = entry.request.head, let base = entry.request.base {
-                LabeledContent("Merge", value: "\(head) → \(base)")
+                SettingsDetail("Merge", value: "\(head) → \(base)")
             }
-            LabeledContent("Status", value: entry.status.title)
+            SettingsDetail("Status", value: entry.status.title)
             if let url = entry.url, url.scheme == "https", url.host == "github.com" {
                 Link("Open on GitHub", destination: url)
             }
-            ScrollView {
-                Text(entry.request.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(entry.request.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let error = error ?? entry.error { Text(error).foregroundStyle(.orange) }
-            HStack {
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
-                Spacer()
-                if entry.status == .awaitingConfirmation && entry.requestedByDeviceID == workspace.deviceID {
-                    Button("Decline", role: .destructive) { Task { await decide(approved: false) } }
-                    Button("Confirm and submit") { Task { await decide(approved: true) } }
-                        .buttonStyle(.borderedProminent)
-                }
+        } actions: {
+            Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+            if entry.status == .awaitingConfirmation && entry.requestedByDeviceID == workspace.deviceID {
+                Button("Decline", role: .destructive) { Task { await decide(approved: false) } }
+                Button("Confirm and submit") { Task { await decide(approved: true) } }
+                    .buttonStyle(.borderedProminent)
             }
-            .disabled(busy)
         }
+        .disabled(busy)
         .textSelection(.enabled)
-        .padding(22)
-        .frame(width: 540, height: 400)
     }
 
     private func decide(approved: Bool) async {

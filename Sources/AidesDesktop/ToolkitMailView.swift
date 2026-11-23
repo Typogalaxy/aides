@@ -32,13 +32,11 @@ struct ToolkitMailView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(accounts) { account in
-                    LabeledContent("\(account.label) · \(account.provider.title)") {
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Text(account.address)
-                            Text(account.available ? (account.allowSend ? "Read and send" : "Read only") : "Credential unavailable")
-                                .desktopUIFont(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                    VStack(alignment: .leading, spacing: 4) {
+                        SettingsDetail("\(account.label) · \(account.provider.title)", value: account.address)
+                        Text(account.available ? (account.allowSend ? "Read and send" : "Read only") : "Credential unavailable")
+                            .desktopUIFont(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -58,12 +56,10 @@ struct ToolkitMailView: View {
                         }
                     }
                     .disabled(busy)
-                    HStack {
-                        TextField("Search terms", text: $query)
-                            .onSubmit { Task { await search() } }
-                        Button("Search") { Task { await search() } }
-                            .disabled(busy || account == nil || query.trimmed.isEmpty)
-                    }
+                    TextField("Search terms", text: $query)
+                        .onSubmit { Task { await search() } }
+                    Button("Search") { Task { await search() } }
+                        .disabled(busy || account == nil || query.trimmed.isEmpty)
                     if hasSearched && messages.isEmpty {
                         Text("No messages found.").foregroundStyle(.secondary)
                     }
@@ -221,54 +217,50 @@ private struct ToolkitMailMessageSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            PageHeading(message.subject.isEmpty ? "(No subject)" : message.subject)
-            LabeledContent("From", value: message.from)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(message.body ?? message.preview)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if !message.attachments.isEmpty {
-                        Divider()
-                        Text("Attachments").desktopUIFont(.headline)
-                        ForEach(Array(message.attachments.enumerated()), id: \.offset) { index, attachment in
-                            HStack {
-                                LabeledContent(attachment.name, value: attachmentDetails(attachment))
-                                    .desktopUIFont(.caption)
-                                if let account, let key = attachment.previewKey {
-                                    Button("Preview text") { Task { await preview(index: index, key: key, account: account) } }
-                                        .accessibilityLabel("Preview text from \(attachment.name)")
-                                        .disabled(busy)
-                                }
+        SettingsFormSheet(title: "Mail message", idealWidth: 560) {
+            Text(message.subject.isEmpty ? "(No subject)" : message.subject)
+                .desktopUIFont(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            SettingsDetail("From", value: message.from)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(message.body ?? message.preview)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !message.attachments.isEmpty {
+                    Divider()
+                    Text("Attachments").desktopUIFont(.headline)
+                    ForEach(Array(message.attachments.enumerated()), id: \.offset) { index, attachment in
+                        VStack(alignment: .leading, spacing: 5) {
+                            SettingsDetail(attachment.name, value: attachmentDetails(attachment))
+                            if let account, let key = attachment.previewKey {
+                                Button("Preview text") { Task { await preview(index: index, key: key, account: account) } }
+                                    .accessibilityLabel("Preview text from \(attachment.name)")
+                                    .disabled(busy)
                             }
-                        }
-                        if let attachmentPreview {
-                            Divider()
-                            HStack {
-                                Text(verbatim: attachmentPreview.name).desktopUIFont(.headline)
-                                Spacer()
-                                Button("Close text preview") { self.attachmentPreview = nil }
-                            }
-                            Text(verbatim: attachmentPreview.text)
-                                .desktopUIFont(.caption, design: .monospaced)
-                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
+                    if let attachmentPreview {
+                        Divider()
+                        Text(verbatim: attachmentPreview.name)
+                            .desktopUIFont(.headline)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Close text preview") { self.attachmentPreview = nil }
+                        Text(verbatim: attachmentPreview.text)
+                            .desktopUIFont(.caption, design: .monospaced)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                .textSelection(.enabled)
             }
+            .textSelection(.enabled)
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                if let account, account.allowArchive {
-                    Button("Prepare archive request") { Task { await prepareArchive(account) } }
-                }
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+        } actions: {
+            if let account, account.allowArchive {
+                Button("Prepare archive request") { Task { await prepareArchive(account) } }
+                    .disabled(busy)
             }
-            .disabled(busy)
+            Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                .disabled(busy)
         }
-        .padding(22)
-        .frame(width: 560, height: 420)
     }
 
     private func attachmentDetails(_ attachment: ToolkitMailAttachment) -> String {
@@ -322,29 +314,24 @@ private struct ToolkitMailArchiveReviewSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            PageHeading("Archive mail")
-            LabeledContent("Account", value: archive.accountAddress)
-            LabeledContent("Message sender", value: archive.from)
-            LabeledContent("Subject", value: archive.subject)
-            LabeledContent("Status", value: archive.status.title)
+        SettingsFormSheet(title: "Archive mail", idealWidth: 520) {
+            SettingsDetail("Account", value: archive.accountAddress)
+            SettingsDetail("Message sender", value: archive.from)
+            SettingsDetail("Subject", value: archive.subject)
+            SettingsDetail("Status", value: archive.status.title)
             if let error = error ?? archive.error {
                 Text(error).foregroundStyle(.orange).textSelection(.enabled)
             }
-            HStack {
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
-                Spacer()
-                if archive.status == .awaitingConfirmation && archive.requestedByDeviceID == workspace.deviceID {
-                    Button("Decline", role: .destructive) { Task { await decide(approved: false) } }
-                    Button("Confirm and archive") { Task { await decide(approved: true) } }
-                        .buttonStyle(.borderedProminent)
-                }
+        } actions: {
+            Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+            if archive.status == .awaitingConfirmation && archive.requestedByDeviceID == workspace.deviceID {
+                Button("Decline", role: .destructive) { Task { await decide(approved: false) } }
+                Button("Confirm and archive") { Task { await decide(approved: true) } }
+                    .buttonStyle(.borderedProminent)
             }
-            .disabled(isWorking)
         }
+        .disabled(isWorking)
         .textSelection(.enabled)
-        .padding(22)
-        .frame(width: 520)
     }
 
     private func decide(approved: Bool) async {
@@ -400,27 +387,28 @@ private struct ToolkitMailComposeSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PageHeading("Create mail draft")
-            Form {
-                LabeledContent("From", value: account.address)
-                TextField("To (comma-separated addresses)", text: $recipients)
-                TextField("Subject", text: $subject)
-                TextField("Message", text: $message, axis: .vertical).lineLimit(5...12)
+        SettingsFormSheet(title: "Create mail draft", idealWidth: 540) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingsDetail("From", value: account.address)
+                SettingsField("To (comma-separated addresses)") {
+                    TextField("", text: $recipients)
+                }
+                SettingsField("Subject") {
+                    TextField("", text: $subject)
+                }
+                SettingsField("Message") {
+                    TextField("", text: $message, axis: .vertical).lineLimit(5...12)
+                }
             }
             .disabled(busy)
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy)
-                Button("Save for review") { Task { await save() } }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(addresses.isEmpty || subject.trimmed.isEmpty || message.trimmed.isEmpty || busy)
-            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy)
+            Button("Save for review") { Task { await save() } }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(addresses.isEmpty || subject.trimmed.isEmpty || message.trimmed.isEmpty || busy)
         }
-        .padding(22)
-        .frame(width: 550)
     }
 
     private func save() async {
@@ -456,37 +444,30 @@ private struct ToolkitMailReviewSheet: View {
     @ViewState private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            PageHeading("Mail draft")
-            LabeledContent("From", value: draft.accountAddress)
-            LabeledContent("To", value: draft.to.joined(separator: ", "))
-            LabeledContent("Subject", value: draft.subject)
-            LabeledContent("Status", value: draft.status.title)
-            ScrollView {
-                Text(draft.body)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+        SettingsFormSheet(title: "Mail draft", idealWidth: 570) {
+            SettingsDetail("From", value: draft.accountAddress)
+            SettingsDetail("To", value: draft.to.joined(separator: ", "))
+            SettingsDetail("Subject", value: draft.subject)
+            SettingsDetail("Status", value: draft.status.title)
+            Text(draft.body)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
             if draft.status == .interrupted {
                 Text("Check the provider’s Sent folder before creating another copy.")
                     .desktopUIFont(.caption)
                     .foregroundStyle(.secondary)
             }
-            HStack {
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
-                Spacer()
-                if draft.status == .awaitingConfirmation && draft.requestedByDeviceID == workspace.deviceID {
-                    Button("Decline", role: .destructive) { Task { await decide(approved: false) } }
-                    Button("Confirm and send") { Task { await decide(approved: true) } }
-                        .buttonStyle(.borderedProminent)
-                }
+        } actions: {
+            Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+            if draft.status == .awaitingConfirmation && draft.requestedByDeviceID == workspace.deviceID {
+                Button("Decline", role: .destructive) { Task { await decide(approved: false) } }
+                Button("Confirm and send") { Task { await decide(approved: true) } }
+                    .buttonStyle(.borderedProminent)
             }
-            .disabled(busy)
         }
+        .disabled(busy)
         .textSelection(.enabled)
-        .padding(22)
-        .frame(width: 590, height: 420)
     }
 
     private func decide(approved: Bool) async {
