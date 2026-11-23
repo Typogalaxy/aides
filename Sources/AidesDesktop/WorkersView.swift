@@ -22,17 +22,25 @@ struct WorkersView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            WorkRow {
                 PageHeading("Workers", description: "Follow runs, review requests and manage scheduled work.")
-                Button("New schedule") { showsSchedule = true }
-                Button("Review task…") { showsReview = true }
-                    .disabled(workspace.state.models.count < 2)
-                Button {
-                    showsTask = true
-                } label: {
-                    Label("Assign task", systemImage: "plus")
+            } actions: {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        scheduleButton
+                        reviewButton
+                        taskButton
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+
+                    HStack(spacing: 8) {
+                        Menu("More actions") {
+                            scheduleButton
+                            reviewButton
+                        }
+                        taskButton
+                    }
                 }
-                .buttonStyle(.borderedProminent)
             }
             .padding(20)
             Divider()
@@ -55,16 +63,23 @@ struct WorkersView: View {
                     Button {
                         inspect(task.id)
                     } label: {
-                        HStack(spacing: 16) {
+                        WorkRow {
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(task.title).desktopUIFont(.body, weight: .medium).lineLimit(2)
+                                Text(task.title)
+                                    .desktopUIFont(.body, weight: .medium)
+                                    .lineLimit(3)
+                                    .help(task.title)
                                 Text(task.updatedAt.formatted(date: .abbreviated, time: .shortened))
                                     .desktopUIFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            TaskStatusView(task: task)
-                            Image(systemName: "chevron.right").desktopUIFont(.caption).foregroundStyle(.tertiary)
+                        } actions: {
+                            HStack(spacing: 8) {
+                                TaskStatusView(task: task)
+                                Image(systemName: "chevron.right")
+                                    .desktopUIFont(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                         .padding(.vertical, 5)
                         .contentShape(Rectangle())
@@ -90,6 +105,24 @@ struct WorkersView: View {
         }
     }
 
+    private var scheduleButton: some View {
+        Button("New schedule") { showsSchedule = true }
+    }
+
+    private var reviewButton: some View {
+        Button("Review task…") { showsReview = true }
+            .disabled(workspace.state.models.count < 2)
+    }
+
+    private var taskButton: some View {
+        Button {
+            showsTask = true
+        } label: {
+            Label("Assign task", systemImage: "plus")
+        }
+        .buttonStyle(.borderedProminent)
+    }
+
     @ViewBuilder
     private var schedules: some View {
         if workspace.state.schedules.isEmpty {
@@ -97,12 +130,17 @@ struct WorkersView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(workspace.state.schedules) { schedule in
-                HStack(alignment: .center) {
+                WorkRow {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(schedule.title).desktopUIFont(.body, weight: .medium)
-                        Text(scheduleDetail(schedule)).desktopUIFont(.caption).foregroundStyle(.secondary)
+                        Text(schedule.title)
+                            .desktopUIFont(.body, weight: .medium)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(scheduleDetail(schedule))
+                            .desktopUIFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer()
+                } actions: {
                     if schedule.paused || schedule.nextRun != nil {
                         Button(schedule.paused ? "Resume" : "Pause") {
                             Task { await workspace.setSchedulePaused(schedule.id, paused: !schedule.paused) }
@@ -181,14 +219,15 @@ struct WorkerInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     PageHeading(task.title)
+                        .fixedSize(horizontal: false, vertical: true)
                     TaskStatusView(task: task)
                     if let model = workspace.state.models.first(where: { $0.id == task.modelID }) {
-                        LabeledContent("Model", value: model.name)
+                        WorkField(label: "Model", value: model.name)
                     }
                     if let scheduledAt = task.scheduledAt {
-                        LabeledContent("Scheduled", value: scheduledAt.formatted(date: .abbreviated, time: .shortened))
+                        WorkField(label: "Scheduled", value: scheduledAt.formatted(date: .abbreviated, time: .shortened))
                     }
-                    LabeledContent("Updated", value: task.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                    WorkField(label: "Updated", value: task.updatedAt.formatted(date: .abbreviated, time: .shortened))
                     if task.kind == .codeProposal {
                         CodeProposalDetails(workspace: workspace, task: task)
                             .id(task.id)
@@ -199,14 +238,17 @@ struct WorkerInspector: View {
                     }
                     if let message = task.error {
                         Label("Run details", systemImage: "exclamationmark.triangle").desktopUIFont(.headline)
-                        Text(message).textSelection(.enabled)
+                        Text(message)
                             .desktopUIFont(.callout)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
                     if let result = task.result, !result.isEmpty {
                         Text("Result").desktopUIFont(.headline)
                         Text(result)
                             .desktopUIFont(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
                     if let suggestion = task.toolkitSuggestion {
@@ -334,98 +376,91 @@ struct NewTaskSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            PageHeading("Assign task")
-            Form {
-                TextField("Title", text: $title)
-                TextField("Instructions", text: $instruction, axis: .vertical)
-                    .lineLimit(3...6)
-                ModelPicker(models: workspace.state.models, selection: $modelID)
-                if model?.kind.isLocal == true {
-                    if !workspace.fileRelay.manifest.grants.isEmpty {
-                        ToolkitFolderPicker(
-                            workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this run"
-                        )
-                        .onChange(of: toolkitResourceID) { _, folder in
-                            if folder != nil { toolkitMailAccountID = nil }
-                        }
-                    }
-                    ToolkitMailAccountPicker(
-                        workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft account…"
+        WorkFormSheet("Assign task") {
+            TextField("Title", text: $title)
+            TextField("Instructions", text: $instruction, axis: .vertical)
+                .lineLimit(3...6)
+            ModelPicker(models: workspace.state.models, selection: $modelID)
+            if model?.kind.isLocal == true {
+                if !workspace.fileRelay.manifest.grants.isEmpty {
+                    ToolkitFolderPicker(
+                        workspace: workspace, selection: $toolkitResourceID, label: "Toolkit folder for this run"
                     )
-                    .onChange(of: toolkitMailAccountID) { _, account in
-                        if account != nil { toolkitResourceID = nil }
+                    .onChange(of: toolkitResourceID) { _, folder in
+                        if folder != nil { toolkitMailAccountID = nil }
                     }
-                    if !localReceipts.isEmpty {
-                        Picker("File result for local model", selection: $toolkitInvocationID) {
-                            Text("No file result").tag(UUID?.none)
-                            ForEach(localReceipts) { receipt in
-                                let path = receipt.path.isEmpty ? "." : receipt.path
-                                Text("\(receipt.grantName) / \(path) · \(receipt.updatedAt.formatted(date: .omitted, time: .shortened))")
-                                    .tag(Optional(receipt.id))
-                            }
-                        }
-                        .disabled(localAction != nil)
-                        .help("Include the selected completed file result in the local model's input for this run.")
-                    }
-                    if !localActions.isEmpty { localInputPicker }
                 }
-                if usesCloud && !shareableMemories.isEmpty {
-                    Section("Memory to share (up to four)") {
-                        ForEach(shareableMemories) { memory in
-                            Toggle(memory.key, isOn: Binding(
-                                get: { sharedMemoryIDs.contains(memory.id) },
-                                set: { selected in
-                                    if selected {
-                                        sharedMemoryIDs.insert(memory.id)
-                                    } else {
-                                        sharedMemoryIDs.remove(memory.id)
-                                    }
+                ToolkitMailAccountPicker(
+                    workspace: workspace, selection: $toolkitMailAccountID, label: "Mail draft account…"
+                )
+                .onChange(of: toolkitMailAccountID) { _, account in
+                    if account != nil { toolkitResourceID = nil }
+                }
+                if !localReceipts.isEmpty {
+                    Picker("File result for local model", selection: $toolkitInvocationID) {
+                        Text("No file result").tag(UUID?.none)
+                        ForEach(localReceipts) { receipt in
+                            let path = receipt.path.isEmpty ? "." : receipt.path
+                            Text("\(receipt.grantName) / \(path) · \(receipt.updatedAt.formatted(date: .omitted, time: .shortened))")
+                                .tag(Optional(receipt.id))
+                        }
+                    }
+                    .disabled(localAction != nil)
+                    .help("Include the selected completed file result in the local model's input for this run.")
+                }
+                if !localActions.isEmpty { localInputPicker }
+            }
+            if usesCloud && !shareableMemories.isEmpty {
+                Section("Memory to share (up to four)") {
+                    ForEach(shareableMemories) { memory in
+                        Toggle(memory.key, isOn: Binding(
+                            get: { sharedMemoryIDs.contains(memory.id) },
+                            set: { selected in
+                                if selected {
+                                    sharedMemoryIDs.insert(memory.id)
+                                } else {
+                                    sharedMemoryIDs.remove(memory.id)
                                 }
-                            ))
-                            .disabled(sharedMemoryIDs.count >= 4 && !sharedMemoryIDs.contains(memory.id))
-                        }
+                            }
+                        ))
+                        .disabled(sharedMemoryIDs.count >= 4 && !sharedMemoryIDs.contains(memory.id))
                     }
                 }
-                Toggle("Start later", isOn: $delayed)
-                if delayed { DatePicker("Start", selection: $scheduledAt, in: Date.now...) }
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(delayed ? "Schedule run" : "Assign") {
-                    Task {
-                        let request = TaskRequest(
-                            title: title.trimmed, instruction: instruction.trimmed.isEmpty ? nil : instruction.trimmed,
-                            threadID: threadID, projectID: model?.kind.isLocal == true ? taskProjectID : projectID,
-                            modelID: modelID,
-                            scheduledAt: delayed ? scheduledAt : nil,
-                            sharedMemoryIDs: usesCloud ? shareableMemories.filter { sharedMemoryIDs.contains($0.id) }.map(\.id) : nil,
-                            toolkitResourceID: model?.kind.isLocal == true && toolkitMailAccountID == nil ? toolkitResourceID : nil,
-                            toolkitInvocationID: model?.kind.isLocal == true && localAction == nil
-                                ? localReceipts.first { $0.id == toolkitInvocationID }?.id : nil,
-                            toolkitLocalSelection: model?.kind.isLocal == true ? localAction.map { action in
-                                ToolkitWorkerSelection(
-                                    action: action.id,
-                                    query: action.acceptsQuery && !localQuery.trimmed.isEmpty ? localQuery.trimmed : nil,
-                                    path: action.acceptsPath && !localPath.trimmed.isEmpty ? localPath.trimmed : nil
-                                )
-                            } : nil,
-                            toolkitMailAccountID: model?.kind.isLocal == true ? toolkitMailAccountID : nil
-                        )
-                        if let id = await workspace.createTask(request) {
-                            dismiss()
-                            onCreated(id)
-                        }
+            Toggle("Start later", isOn: $delayed)
+            if delayed { DatePicker("Start", selection: $scheduledAt, in: Date.now...) }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button(delayed ? "Schedule run" : "Assign") {
+                Task {
+                    let request = TaskRequest(
+                        title: title.trimmed, instruction: instruction.trimmed.isEmpty ? nil : instruction.trimmed,
+                        threadID: threadID, projectID: model?.kind.isLocal == true ? taskProjectID : projectID,
+                        modelID: modelID,
+                        scheduledAt: delayed ? scheduledAt : nil,
+                        sharedMemoryIDs: usesCloud ? shareableMemories.filter { sharedMemoryIDs.contains($0.id) }.map(\.id) : nil,
+                        toolkitResourceID: model?.kind.isLocal == true && toolkitMailAccountID == nil ? toolkitResourceID : nil,
+                        toolkitInvocationID: model?.kind.isLocal == true && localAction == nil
+                            ? localReceipts.first { $0.id == toolkitInvocationID }?.id : nil,
+                        toolkitLocalSelection: model?.kind.isLocal == true ? localAction.map { action in
+                            ToolkitWorkerSelection(
+                                action: action.id,
+                                query: action.acceptsQuery && !localQuery.trimmed.isEmpty ? localQuery.trimmed : nil,
+                                path: action.acceptsPath && !localPath.trimmed.isEmpty ? localPath.trimmed : nil
+                            )
+                        } : nil,
+                        toolkitMailAccountID: model?.kind.isLocal == true ? toolkitMailAccountID : nil
+                    )
+                    if let id = await workspace.createTask(request) {
+                        dismiss()
+                        onCreated(id)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmed.isEmpty || workspace.isWorking || !localInputIsValid)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(title.trimmed.isEmpty || workspace.isWorking || !localInputIsValid)
         }
-        .padding(22)
-        .frame(width: 490)
         .task {
             if let catalog: ToolkitLocalCatalog = try? await workspace.toolkitGet(["local", "actions"]) {
                 localActions = catalog.actions
@@ -464,54 +499,47 @@ struct NewScheduleSheet: View {
     @ViewState private var modelID: UUID?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            PageHeading("New schedule")
-            Form {
-                TextField("Description", text: $title)
-                Picker("Action", selection: $kind) {
-                    Text("Reminder").tag("reminder")
-                    Text("Analysis").tag("analysis")
-                }
-                Picker("Repeat", selection: $repeatRule) {
-                    Text("Once").tag("once")
-                    Text("Daily").tag("daily")
-                    Text("Weekly").tag("weekly")
-                }
-                DatePicker("First run", selection: $firstRun, in: Date.now...)
-                TextField("Repeat time zone", text: $timeZone, prompt: Text(TimeZone.current.identifier))
-                Picker("Conversation", selection: $threadID) {
-                    Text("Secretary").tag(UUID?.none)
-                    ForEach(workspace.state.threads.filter { $0.role != .secretary && $0.archivedAt == nil }) { thread in
-                        Text(thread.title).tag(Optional(thread.id))
-                    }
-                }
-                if kind == "analysis" {
-                    ModelPicker(models: workspace.state.models, selection: $modelID)
+        WorkFormSheet("New schedule") {
+            TextField("Description", text: $title)
+            Picker("Action", selection: $kind) {
+                Text("Reminder").tag("reminder")
+                Text("Analysis").tag("analysis")
+            }
+            Picker("Repeat", selection: $repeatRule) {
+                Text("Once").tag("once")
+                Text("Daily").tag("daily")
+                Text("Weekly").tag("weekly")
+            }
+            DatePicker("First run", selection: $firstRun, in: Date.now...)
+            TextField("Repeat time zone", text: $timeZone, prompt: Text(TimeZone.current.identifier))
+            Picker("Conversation", selection: $threadID) {
+                Text("Secretary").tag(UUID?.none)
+                ForEach(workspace.state.threads.filter { $0.role != .secretary && $0.archivedAt == nil }) { thread in
+                    Text(thread.title).tag(Optional(thread.id))
                 }
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Create schedule") {
-                    Task {
-                        let thread = workspace.state.threads.first { $0.id == threadID }
-                        if await workspace.createSchedule(ScheduleRequest(
-                            title: title.trimmed, threadID: threadID, projectID: thread?.projectID,
-                            modelID: kind == "analysis" ? modelID : nil, kind: kind,
-                            repeatRule: repeatRule, timeZone: timeZone.trimmed, firstRun: firstRun
-                        )) {
-                            dismiss()
-                            onCreated()
-                        }
+            if kind == "analysis" {
+                ModelPicker(models: workspace.state.models, selection: $modelID)
+            }
+        } actions: {
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Create schedule") {
+                Task {
+                    let thread = workspace.state.threads.first { $0.id == threadID }
+                    if await workspace.createSchedule(ScheduleRequest(
+                        title: title.trimmed, threadID: threadID, projectID: thread?.projectID,
+                        modelID: kind == "analysis" ? modelID : nil, kind: kind,
+                        repeatRule: repeatRule, timeZone: timeZone.trimmed, firstRun: firstRun
+                    )) {
+                        dismiss()
+                        onCreated()
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmed.isEmpty || TimeZone(identifier: timeZone.trimmed) == nil || workspace.isWorking)
             }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(title.trimmed.isEmpty || TimeZone(identifier: timeZone.trimmed) == nil || workspace.isWorking)
         }
-        .padding(22)
-        .frame(width: 490)
     }
 }
 
@@ -526,5 +554,92 @@ struct ModelPicker: View {
                 Text(model.name).tag(Optional(model.id))
             }
         }
+    }
+}
+
+struct WorkRow<Summary: View, Actions: View>: View {
+    @ViewBuilder let summary: () -> Summary
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                summary()
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                actions()
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                summary()
+                actions()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct WorkField: View {
+    let label: String
+    let value: String
+    var monospaced = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .desktopUIFont(.caption, weight: .medium)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .desktopUIFont(.callout, design: monospaced ? .monospaced : .default)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct WorkFormSheet<Fields: View, Actions: View>: View {
+    let title: String
+    var description: String? = nil
+    @ViewBuilder let fields: () -> Fields
+    @ViewBuilder let actions: () -> Actions
+
+    init(
+        _ title: String, description: String? = nil,
+        @ViewBuilder fields: @escaping () -> Fields,
+        @ViewBuilder actions: @escaping () -> Actions
+    ) {
+        self.title = title
+        self.description = description
+        self.fields = fields
+        self.actions = actions
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PageHeading(title, description: description)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+            Divider()
+            Form(content: fields)
+                .formStyle(.grouped)
+                .frame(minHeight: 125)
+            Divider()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 9) {
+                    actions()
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .trailing, spacing: 8) {
+                    actions()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .frame(minWidth: 340, idealWidth: 500, maxWidth: 540,
+               minHeight: 255, idealHeight: 400, maxHeight: 440)
     }
 }
