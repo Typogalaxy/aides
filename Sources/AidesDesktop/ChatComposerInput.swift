@@ -112,10 +112,19 @@ final class ComposerTextView: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard showsPlaceholder, let font else { return }
-        (placeholder as NSString).draw(at: textContainerOrigin, withAttributes: [
-            .font: font,
-            .foregroundColor: NSColor.placeholderTextColor
-        ])
+        let origin = textContainerOrigin
+        let lineHeight = ceil(layoutManager?.defaultLineHeight(for: font) ?? (font.ascender - font.descender + font.leading))
+        let line = NSRect(
+            x: origin.x, y: origin.y,
+            width: max(0, bounds.maxX - origin.x), height: lineHeight
+        )
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (placeholder as NSString).draw(
+            with: line,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [.font: font, .foregroundColor: NSColor.placeholderTextColor, .paragraphStyle: paragraph]
+        )
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {

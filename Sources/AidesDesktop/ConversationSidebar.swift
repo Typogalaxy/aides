@@ -179,6 +179,7 @@ struct ConversationSidebar: View {
             Label(project.name, systemImage: "folder")
                 .desktopUIFont(.body, weight: .medium)
                 .lineLimit(1)
+                .help(project.name)
         }
         .padding(.horizontal, 6)
     }
